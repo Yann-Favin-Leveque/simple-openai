@@ -144,6 +144,15 @@ class SimpleOpenAIAzureTest {
                 .build();
         assertNotNull(openAI.chatCompletions());
         assertNotNull(openAI.files());
+        // Test that assistant/vector store methods now work
+        assertNotNull(openAI.assistants());
+        assertNotNull(openAI.threads());
+        assertNotNull(openAI.threadMessages());
+        assertNotNull(openAI.threadRuns());
+        assertNotNull(openAI.threadRunSteps());
+        assertNotNull(openAI.vectorStores());
+        assertNotNull(openAI.vectorStoreFiles());
+        assertNotNull(openAI.vectorStoreFileBatches());
     }
 
     @Test
@@ -153,6 +162,7 @@ class SimpleOpenAIAzureTest {
                 .baseUrl("baseUrl")
                 .apiVersion("apiVersion")
                 .build();
+        // Only test methods that are still unimplemented
         Runnable[] callingData = {
                 openAI::audios,
                 openAI::batches,
@@ -163,14 +173,6 @@ class SimpleOpenAIAzureTest {
                 openAI::models,
                 openAI::moderations,
                 openAI::uploads,
-                openAI::assistants,
-                openAI::threads,
-                openAI::threadMessages,
-                openAI::threadRuns,
-                openAI::threadRunSteps,
-                openAI::vectorStores,
-                openAI::vectorStoreFiles,
-                openAI::vectorStoreFileBatches,
                 openAI::realtime
         };
         for (Runnable calling : callingData) {

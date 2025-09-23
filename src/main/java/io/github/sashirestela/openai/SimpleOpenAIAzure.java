@@ -31,7 +31,7 @@ public class SimpleOpenAIAzure extends BaseSimpleOpenAI {
      */
     @Builder
     public SimpleOpenAIAzure(@NonNull String apiKey, @NonNull String baseUrl, @NonNull String apiVersion,
-            HttpClient httpClient, ObjectMapper objectMapper) {
+                             HttpClient httpClient, ObjectMapper objectMapper) {
         super(prepareBaseSimpleOpenAIArgs(apiKey, baseUrl, apiVersion, httpClient, objectMapper));
     }
 
@@ -105,7 +105,7 @@ public class SimpleOpenAIAzure extends BaseSimpleOpenAI {
     }
 
     public static BaseSimpleOpenAIArgs prepareBaseSimpleOpenAIArgs(String apiKey, String baseUrl, String apiVersion,
-            HttpClient httpClient, ObjectMapper objectMapper) {
+                                                                   HttpClient httpClient, ObjectMapper objectMapper) {
 
         var headers = Map.of(Constant.AZURE_APIKEY_HEADER, apiKey);
         UnaryOperator<HttpRequestData> requestInterceptor = request -> {
@@ -128,6 +128,110 @@ public class SimpleOpenAIAzure extends BaseSimpleOpenAI {
                 .requestInterceptor(requestInterceptor)
                 .objectMapper(objectMapper)
                 .build();
+    }
+
+    /**
+     * Generates an implementation of the Assistants interface to handle requests.
+     *
+     * @return An instance of the interface.
+     */
+    @Override
+    public OpenAIBeta2.Assistants assistants() {
+        if (assistantService == null) {
+            assistantService = cleverClient.create(OpenAIBeta2.Assistants.class);
+        }
+        return assistantService;
+    }
+
+    /**
+     * Generates an implementation of the Threads interface to handle requests.
+     *
+     * @return An instance of the interface.
+     */
+    @Override
+    public OpenAIBeta2.Threads threads() {
+        if (threadService == null) {
+            threadService = cleverClient.create(OpenAIBeta2.Threads.class);
+        }
+        return threadService;
+    }
+
+    /**
+     * Generates an implementation of the ThreadMessages interface to handle requests.
+     *
+     * @return An instance of the interface.
+     */
+    @Override
+    public OpenAIBeta2.ThreadMessages threadMessages() {
+        if (threadMessageService == null) {
+            threadMessageService = cleverClient.create(OpenAIBeta2.ThreadMessages.class);
+        }
+        return threadMessageService;
+    }
+
+    /**
+     * Generates an implementation of the ThreadRuns interface to handle requests.
+     *
+     * @return An instance of the interface.
+     */
+    @Override
+    public OpenAIBeta2.ThreadRuns threadRuns() {
+        if (threadRunService == null) {
+            threadRunService = cleverClient.create(OpenAIBeta2.ThreadRuns.class);
+        }
+        return threadRunService;
+    }
+
+    /**
+     * Generates an implementation of the ThreadRunSteps interface to handle requests.
+     *
+     * @return An instance of the interface.
+     */
+    @Override
+    public OpenAIBeta2.ThreadRunSteps threadRunSteps() {
+        if (threadRunStepService == null) {
+            threadRunStepService = cleverClient.create(OpenAIBeta2.ThreadRunSteps.class);
+        }
+        return threadRunStepService;
+    }
+
+    /**
+     * Generates an implementation of the VectorStores interface to handle requests.
+     *
+     * @return An instance of the interface.
+     */
+    @Override
+    public OpenAIBeta2.VectorStores vectorStores() {
+        if (vectorStoreService == null) {
+            vectorStoreService = cleverClient.create(OpenAIBeta2.VectorStores.class);
+        }
+        return vectorStoreService;
+    }
+
+    /**
+     * Generates an implementation of the VectorStoreFiles interface to handle requests.
+     *
+     * @return An instance of the interface.
+     */
+    @Override
+    public OpenAIBeta2.VectorStoreFiles vectorStoreFiles() {
+        if (vectorStoreFileService == null) {
+            vectorStoreFileService = cleverClient.create(OpenAIBeta2.VectorStoreFiles.class);
+        }
+        return vectorStoreFileService;
+    }
+
+    /**
+     * Generates an implementation of the VectorStoreFileBatches interface to handle requests.
+     *
+     * @return An instance of the interface.
+     */
+    @Override
+    public OpenAIBeta2.VectorStoreFileBatches vectorStoreFileBatches() {
+        if (vectorStoreFileBatchService == null) {
+            vectorStoreFileBatchService = cleverClient.create(OpenAIBeta2.VectorStoreFileBatches.class);
+        }
+        return vectorStoreFileBatchService;
     }
 
 }
