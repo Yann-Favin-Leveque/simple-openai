@@ -134,10 +134,15 @@ public abstract class BaseSimpleOpenAI {
     }
 
     /**
-     * Throw not implemented
+     * Generates an implementation of the Images interface to handle requests.
+     *
+     * @return An instance of the interface.
      */
     public OpenAI.Images images() {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED);
+        if (imageService == null) {
+            imageService = cleverClient.create(OpenAI.Images.class);
+        }
+        return imageService;
     }
 
     /**
