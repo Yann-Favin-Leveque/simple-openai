@@ -169,7 +169,6 @@ class SimpleOpenAIAzureTest {
                 openAI::completions,
                 openAI::embeddings,
                 openAI::fineTunings,
-                openAI::images,
                 openAI::models,
                 openAI::moderations,
                 openAI::uploads,

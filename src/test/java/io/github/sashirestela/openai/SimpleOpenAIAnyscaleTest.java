@@ -52,7 +52,6 @@ class SimpleOpenAIAnyscaleTest {
                 openAI::embeddings,
                 openAI::files,
                 openAI::fineTunings,
-                openAI::images,
                 openAI::models,
                 openAI::moderations,
                 openAI::uploads,
