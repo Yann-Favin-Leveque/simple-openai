@@ -52,12 +52,13 @@ public class SimpleOpenAIAzure extends BaseSimpleOpenAI {
         final String VERSION_REGEX = "(/v\\d+\\.*\\d*)";
         final String DEPLOYMENT_REGEX = "/deployments/[^/]+/";
         final String CHAT_COMPLETIONS_LITERAL = "/chat/completions";
+        final String IMAGES_GENERATIONS_LITERAL = "/images/generations";
 
         url += (url.contains("?") ? "&" : "?") + Constant.AZURE_API_VERSION + "=" + apiVersion;
         url = url.replaceFirst(VERSION_REGEX, "");
 
-        // Strip deployment from URL unless it's /chat/completions call
-        if (!url.contains(CHAT_COMPLETIONS_LITERAL)) {
+        // Keep deployment in URL for /chat/completions and /images/generations calls
+        if (!url.contains(CHAT_COMPLETIONS_LITERAL) && !url.contains(IMAGES_GENERATIONS_LITERAL)) {
             url = url.replaceFirst(DEPLOYMENT_REGEX, "/");
         }
 
