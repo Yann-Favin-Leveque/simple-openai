@@ -59,6 +59,7 @@
     <lombok.version>1.18.36</lombok.version>
     <jackson.version>2.18.2</jackson.version>
     <json.schema.version>4.37.0</json.schema.version>
+    <bucket4j.version>8.10.1</bucket4j.version>
     <junit.version>5.11.3</junit.version>
     <mockito.version>5.14.2</mockito.version>
     <!-- Plugins Versions -->
@@ -242,6 +243,11 @@
         <version>${json.schema.version}</version>
       </dependency>
       <dependency>
+        <groupId>com.bucket4j</groupId>
+        <artifactId>bucket4j-core</artifactId>
+        <version>${bucket4j.version}</version>
+      </dependency>
+      <dependency>
         <groupId>org.junit.jupiter</groupId>
         <artifactId>junit-jupiter</artifactId>
         <version>${junit.version}</version>
@@ -292,6 +298,10 @@
     <dependency>
       <groupId>com.github.victools</groupId>
       <artifactId>jsonschema-module-jackson</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.bucket4j</groupId>
+      <artifactId>bucket4j-core</artifactId>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
