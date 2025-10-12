@@ -2,7 +2,6 @@ package io.github.sashirestela.openai.support;
 
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
-import io.github.bucket4j.Bucket4j;
 import io.github.bucket4j.Refill;
 
 import java.time.Duration;
@@ -21,7 +20,7 @@ public class RateLimiter {
      * @param requestsPerSecond Maximum number of requests allowed per second
      */
     public RateLimiter(int requestsPerSecond) {
-        this.bucket = Bucket4j.builder()
+        this.bucket = Bucket.builder()
                 .addLimit(Bandwidth.classic(requestsPerSecond,
                         Refill.intervally(requestsPerSecond, Duration.ofSeconds(1))))
                 .build();

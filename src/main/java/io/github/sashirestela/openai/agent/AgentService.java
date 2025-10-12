@@ -10,8 +10,8 @@ import io.github.sashirestela.openai.domain.assistant.Assistant;
 import io.github.sashirestela.openai.domain.assistant.AssistantRequest;
 import io.github.sashirestela.openai.domain.assistant.ThreadMessageRole;
 import io.github.sashirestela.openai.domain.assistant.ThreadRun;
+import io.github.sashirestela.openai.domain.assistant.ThreadRun.RunStatus;
 import io.github.sashirestela.openai.domain.assistant.ThreadRunRequest;
-import io.github.sashirestela.openai.domain.assistant.ThreadRunStatus;
 import io.github.sashirestela.openai.domain.assistant.ToolResourceFull;
 import io.github.sashirestela.openai.domain.assistant.VectorStoreRequest;
 import io.github.sashirestela.openai.domain.chat.Chat;
@@ -419,7 +419,7 @@ public class AgentService {
         ThreadRun completedRun = pollForCompletion(openAI, actualThreadId, run.getId(), agent.getResponseTimeout());
 
         // Check status
-        if (completedRun.getStatus() != ThreadRunStatus.COMPLETED) {
+        if (completedRun.getStatus() != RunStatus.COMPLETED) {
             throw new RuntimeException("Run failed with status: " + completedRun.getStatus());
         }
 
@@ -485,7 +485,7 @@ public class AgentService {
                 agent.getResponseTimeout());
 
         // Check status
-        if (completedRun.getStatus() != ThreadRunStatus.COMPLETED) {
+        if (completedRun.getStatus() != RunStatus.COMPLETED) {
             throw new RuntimeException("Azure run failed with status: " + completedRun.getStatus());
         }
 
@@ -512,12 +512,12 @@ public class AgentService {
 
         while (true) {
             ThreadRun run = client.threads().getRun(threadId, runId).join();
-            ThreadRunStatus status = run.getStatus();
+            RunStatus status = run.getStatus();
 
-            if (status == ThreadRunStatus.COMPLETED ||
-                status == ThreadRunStatus.FAILED ||
-                status == ThreadRunStatus.CANCELLED ||
-                status == ThreadRunStatus.EXPIRED) {
+            if (status == RunStatus.COMPLETED ||
+                status == RunStatus.FAILED ||
+                status == RunStatus.CANCELLED ||
+                status == RunStatus.EXPIRED) {
                 return run;
             }
 
@@ -543,12 +543,12 @@ public class AgentService {
 
         while (true) {
             ThreadRun run = client.threads().getRun(threadId, runId).join();
-            ThreadRunStatus status = run.getStatus();
+            RunStatus status = run.getStatus();
 
-            if (status == ThreadRunStatus.COMPLETED ||
-                status == ThreadRunStatus.FAILED ||
-                status == ThreadRunStatus.CANCELLED ||
-                status == ThreadRunStatus.EXPIRED) {
+            if (status == RunStatus.COMPLETED ||
+                status == RunStatus.FAILED ||
+                status == RunStatus.CANCELLED ||
+                status == RunStatus.EXPIRED) {
                 return run;
             }
 
@@ -737,7 +737,7 @@ public class AgentService {
                 ThreadRun completedRun = pollForCompletion(openAI, threadId, run.getId(),
                         agent.getResponseTimeout());
 
-                if (completedRun.getStatus() != ThreadRunStatus.COMPLETED) {
+                if (completedRun.getStatus() != RunStatus.COMPLETED) {
                     throw new RuntimeException("Run failed with status: " + completedRun.getStatus());
                 }
 
