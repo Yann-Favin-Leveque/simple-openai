@@ -324,6 +324,35 @@ public class AgentService {
     }
 
     /**
+     * Creates or updates ALL loaded agents on ALL configured instances.
+     * This is useful for initialization or bulk updates.
+     *
+     * @return CompletableFuture that completes when all agents are created/updated
+     */
+    public CompletableFuture<Void> createAllAgents() {
+        if (agents.isEmpty()) {
+            logger.warn("No agents loaded to create/update");
+            return CompletableFuture.completedFuture(null);
+        }
+
+        logger.info("🚀 Creating/updating {} agents on {} instance(s)...", agents.size(), instances.size());
+
+        return CompletableFuture.supplyAsync(() -> {
+            List<CompletableFuture<Assistant>> futures = new ArrayList<>();
+
+            // Create/update all agents
+            for (String agentId : agents.keySet()) {
+                futures.add(createAgent(agentId));
+            }
+
+            // Wait for all to complete
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            logger.info("✅ Successfully created/updated all {} agents on all {} instance(s)", agents.size(), instances.size());
+            return null;
+        });
+    }
+    /**
      * Modifies an existing agent's configuration.
      *
      * @param agentId Agent ID
