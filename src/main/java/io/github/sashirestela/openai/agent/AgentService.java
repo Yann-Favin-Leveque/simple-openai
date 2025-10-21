@@ -1433,6 +1433,68 @@ public class AgentService {
     }
 
     /**
+     * Generates an image using DALL-E with default settings.
+     *
+     * @param prompt The text description of the image to generate
+     * @return CompletableFuture with base64-encoded image data
+     */
+    public CompletableFuture<String> generateImage(String prompt) {
+        return generateImage(prompt, "dall-e-3", Size.X1024, Quality.STANDARD);
+    }
+
+    /**
+     * Generates an image using DALL-E with custom settings.
+     * Uses round-robin load balancing across configured instances.
+     *
+     * @param prompt The text description of the image to generate
+     * @param model The DALL-E model to use (e.g., "dall-e-3", "dall-e-2")
+     * @param size The image size (e.g., Size.X1024, Size.X1792_1024)
+     * @param quality The image quality ("standard" or "hd")
+     * @return CompletableFuture with base64-encoded image data
+     */
+    public CompletableFuture<String> generateImage(String prompt, String model, Size size, Quality quality) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Rate limit check
+                rateLimiter.tryConsume();
+
+                // Get next instance using round-robin
+                SimpleOpenAI instance = getNextInstance();
+
+                // Create image request with b64_json response format
+                ImageRequest imageRequest = ImageRequest.builder()
+                        .model(model)
+                        .prompt(prompt)
+                        .size(size)
+                        .quality(quality)
+                        .n(1)
+                        .responseFormat(io.github.sashirestela.openai.domain.image.ImageResponseFormat.B64JSON)
+                        .build();
+
+                logger.debug("Generating image with model: {}, size: {}, quality: {}", model, size, quality);
+
+                // Call DALL-E API
+                List<Image> response = instance.images().create(imageRequest).join();
+
+                if (response == null || response.isEmpty()) {
+                    throw new RuntimeException("Image generation returned empty response");
+                }
+
+                // Extract base64 image data
+                String base64Image = response.get(0).getB64Json();
+                logger.debug("Image generated successfully (base64 length: {})",
+                    base64Image != null ? base64Image.length() : 0);
+
+                return base64Image;
+
+            } catch (Exception e) {
+                logger.error("Failed to generate image: {}", e.getMessage());
+                throw new RuntimeException("Image generation failed", e);
+            }
+        });
+    }
+
+    /**
      * Shuts down the service and releases resources.
      */
     public void shutdown() {
