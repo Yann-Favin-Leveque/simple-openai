@@ -1,6 +1,7 @@
 package io.github.sashirestela.openai.agent;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -66,6 +67,7 @@ public class AgentDefinition {
      * The class should implement {@link AgentResult} interface.
      */
     @JsonProperty("resultClass")
+    @JsonAlias("result_class")
     private String resultClass;
 
     /**
@@ -84,6 +86,7 @@ public class AgentDefinition {
      * Response timeout in milliseconds.
      */
     @JsonProperty("responseTimeout")
+    @JsonAlias("response_timeout")
     private Integer responseTimeout;
 
     /**
