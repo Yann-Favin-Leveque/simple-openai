@@ -204,10 +204,11 @@ public class AgentService {
     }
 
     /**
-     * Creates or updates an OpenAI Assistant for an agent.
+     * Creates or updates an OpenAI Assistant for an agent on ALL configured instances.
+     * This is essential for multi-instance Azure deployments to ensure load balancing works correctly.
      *
      * @param agentId Agent ID
-     * @return CompletableFuture with the created/updated Assistant
+     * @return CompletableFuture with the created/updated Assistant (from first instance)
      */
     public CompletableFuture<Assistant> createAgent(String agentId) {
         Agent agent = agents.get(agentId);
@@ -239,38 +240,51 @@ public class AgentService {
 
                 AssistantRequest request = requestBuilder.build();
 
-                // Create or update assistant on first instance
-                Assistant assistant;
-                if (agent.getAssistantIds() != null && !agent.getAssistantIds().isEmpty()
-                        && agent.getAssistantIds().get(0) != null && !agent.getAssistantIds().get(0).isEmpty()) {
-                    // Update existing - need to use AssistantModifyRequest
-                    var modifyRequest = io.github.sashirestela.openai.domain.assistant.AssistantModifyRequest.builder()
-                            .name(agent.getName())
-                            .instructions(agent.getInstructions())
-                            .model(agent.getModel())
-                            .temperature(agent.getTemperature())
-                            .responseFormat(request.getResponseFormat())
-                            .build();
-                    assistant = getInstance(0).assistants()
-                            .modify(agent.getAssistantIds().get(0), modifyRequest)
-                            .join();
-                    logger.info("Updated assistant on instance 0: {} ({})", agent.getName(), assistant.getId());
-                } else {
-                    // Create new
-                    assistant = getInstance(0).assistants().create(request).join();
-                    // Initialize assistantIds list if null
-                    if (agent.getAssistantIds() == null) {
-                        agent.setAssistantIds(new java.util.ArrayList<>());
-                    }
-                    // Ensure list has enough capacity
-                    while (agent.getAssistantIds().size() <= 0) {
-                        agent.getAssistantIds().add(null);
-                    }
-                    agent.getAssistantIds().set(0, assistant.getId());
-                    logger.info("Created assistant on instance 0: {} ({})", agent.getName(), assistant.getId());
+                // Initialize assistantIds list if null
+                if (agent.getAssistantIds() == null) {
+                    agent.setAssistantIds(new java.util.ArrayList<>());
                 }
 
-                return assistant;
+                // Ensure list has enough capacity for all instances
+                while (agent.getAssistantIds().size() < instances.size()) {
+                    agent.getAssistantIds().add(null);
+                }
+
+                // Create or update assistant on ALL instances
+                Assistant firstAssistant = null;
+                for (int i = 0; i < instances.size(); i++) {
+                    SimpleOpenAI client = getInstance(i);
+                    Assistant assistant;
+
+                    String existingAssistantId = agent.getAssistantIds().get(i);
+                    if (existingAssistantId != null && !existingAssistantId.isEmpty()) {
+                        // Update existing assistant
+                        var modifyRequest = io.github.sashirestela.openai.domain.assistant.AssistantModifyRequest.builder()
+                                .name(agent.getName())
+                                .instructions(agent.getInstructions())
+                                .model(agent.getModel())
+                                .temperature(agent.getTemperature())
+                                .responseFormat(request.getResponseFormat())
+                                .build();
+                        assistant = client.assistants()
+                                .modify(existingAssistantId, modifyRequest)
+                                .join();
+                        logger.info("✅ Updated assistant on instance {}: {} ({})", i, agent.getName(), assistant.getId());
+                    } else {
+                        // Create new assistant
+                        assistant = client.assistants().create(request).join();
+                        agent.getAssistantIds().set(i, assistant.getId());
+                        logger.info("✅ Created assistant on instance {}: {} ({})", i, agent.getName(), assistant.getId());
+                    }
+
+                    // Keep reference to first assistant to return
+                    if (i == 0) {
+                        firstAssistant = assistant;
+                    }
+                }
+
+                logger.info("🎯 Agent '{}' successfully created/updated on all {} instance(s)", agent.getName(), instances.size());
+                return firstAssistant;
 
             } catch (Exception e) {
                 logger.error("Failed to create/update agent: {}", agentId, e);
@@ -332,6 +346,60 @@ public class AgentService {
         }
 
         return attemptRequest(agent, userMessage, threadId, additionalParams, 0);
+    }
+
+    /**
+     * Sends a message to an agent and returns the typed response object.
+     * Automatically deserializes the JSON response to the agent's configured result class.
+     *
+     * @param agentId          Agent ID
+     * @param userMessage      User message content
+     * @param threadId         Thread ID (null to create new thread)
+     * @param additionalParams Additional parameters for the request
+     * @return CompletableFuture with the agent's response as a typed object
+     */
+    public CompletableFuture<Object> requestAgentTyped(
+            String agentId,
+            String userMessage,
+            String threadId,
+            Map<String, Object> additionalParams) {
+
+        Agent agent = agents.get(agentId);
+        if (agent == null) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("Agent not found: " + agentId));
+        }
+
+        // Get JSON response first
+        return requestAgent(agentId, userMessage, threadId, additionalParams)
+                .thenApply(jsonResponse -> {
+                    try {
+                        // If no result class configured, return raw JSON string
+                        if (agent.getResultClass() == null || agent.getResultClass().isEmpty()) {
+                            return jsonResponse;
+                        }
+
+                        // If no package configured, cannot deserialize
+                        if (config.getAgentResultClassPackage() == null || config.getAgentResultClassPackage().isEmpty()) {
+                            logger.warn("Agent {} has resultClass but agentResultClassPackage not configured, returning raw JSON", agentId);
+                            return jsonResponse;
+                        }
+
+                        // Build full class name: package + resultClass
+                        String fullClassName = config.getAgentResultClassPackage() + "." + agent.getResultClass();
+                        logger.debug("Deserializing response for agent {} to class: {}", agentId, fullClassName);
+
+                        // Load class dynamically and deserialize
+                        Class<?> resultClass = Class.forName(fullClassName);
+                        return objectMapper.readValue(jsonResponse, resultClass);
+
+                    } catch (ClassNotFoundException e) {
+                        String fullClassName = config.getAgentResultClassPackage() + "." + agent.getResultClass();
+                        throw new RuntimeException("Result class not found: " + fullClassName + " for agent " + agentId, e);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to deserialize response for agent " + agentId + ": " + e.getMessage(), e);
+                    }
+                });
     }
 
     /**
