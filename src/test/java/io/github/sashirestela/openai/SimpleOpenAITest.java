@@ -37,7 +37,7 @@ class SimpleOpenAITest {
     @Test
     void shouldPrepareBaseOpenSimpleAIArgsCorrectly() {
         var args = SimpleOpenAI.prepareBaseSimpleOpenAIArgs("the-api-key", "orgId", "prjId", "https://example.org",
-                HttpClient.newHttpClient(), new ObjectMapper(), RealtimeConfig.of("the-model"));
+                HttpClient.newHttpClient(), new ObjectMapper(), RealtimeConfig.of("the-model"), false, null);
 
         assertEquals("https://example.org", args.getBaseUrl());
         assertEquals(3, args.getHeaders().size());
@@ -53,7 +53,7 @@ class SimpleOpenAITest {
 
     @Test
     void shouldPrepareBaseOpenSimpleAIArgsCorrectlyWithOnlyApiKey() {
-        var args = SimpleOpenAI.prepareBaseSimpleOpenAIArgs("the-api-key", null, null, null, null, null, null);
+        var args = SimpleOpenAI.prepareBaseSimpleOpenAIArgs("the-api-key", null, null, null, null, null, null, false, null);
 
         assertEquals(Constant.OPENAI_BASE_URL, args.getBaseUrl());
         assertEquals(1, args.getHeaders().size());
@@ -63,6 +63,20 @@ class SimpleOpenAITest {
         assertNull(args.getObjectMapper());
         assertNull(args.getBaseRealtimeConfig());
         assertNull(args.getRequestInterceptor());
+    }
+
+    @Test
+    void shouldPrepareBaseOpenSimpleAIArgsCorrectlyForAzure() {
+        var args = SimpleOpenAI.prepareBaseSimpleOpenAIArgs("the-api-key", null, null, "https://azure.example.org",
+                HttpClient.newHttpClient(), new ObjectMapper(), null, true, "2024-08-01-preview");
+
+        assertEquals("https://azure.example.org", args.getBaseUrl());
+        assertEquals(1, args.getHeaders().size());
+        assertEquals("the-api-key", args.getHeaders().get(Constant.AZURE_APIKEY_HEADER));
+        assertNotNull(args.getHttpClient());
+        assertNotNull(args.getObjectMapper());
+        assertNull(args.getBaseRealtimeConfig());
+        assertNotNull(args.getRequestInterceptor());
     }
 
     @Test

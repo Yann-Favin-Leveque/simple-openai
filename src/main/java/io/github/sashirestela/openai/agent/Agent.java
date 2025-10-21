@@ -35,15 +35,13 @@ public class Agent {
     private String name;
 
     /**
-     * OpenAI Assistant ID (for standard OpenAI API).
+     * Assistant IDs for each configured instance.
+     * Index corresponds to instance index in AgentService.
+     * For single OpenAI instance: List with one ID.
+     * For multi-instance (OpenAI + Azure or multiple Azure): List with IDs for each instance.
+     * Example: ["asst_openai_123", "asst_azure1_456", "asst_azure2_789"]
      */
-    private String openAiId;
-
-    /**
-     * OpenAI Assistant IDs for Azure multi-instance deployments.
-     * Each element corresponds to an Azure instance for load balancing.
-     */
-    private List<String> openAiAzureIds;
+    private List<String> assistantIds;
 
     /**
      * Model name (e.g., "gpt-4o", "gpt-4o-mini").

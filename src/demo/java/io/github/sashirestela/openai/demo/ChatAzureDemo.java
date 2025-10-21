@@ -1,7 +1,7 @@
 package io.github.sashirestela.openai.demo;
 
 import io.github.sashirestela.openai.BaseSimpleOpenAI;
-import io.github.sashirestela.openai.SimpleOpenAIAzure;
+import io.github.sashirestela.openai.SimpleOpenAI;
 import io.github.sashirestela.openai.common.content.ContentPart.ContentPartImageUrl;
 import io.github.sashirestela.openai.common.content.ContentPart.ContentPartImageUrl.ImageUrl;
 import io.github.sashirestela.openai.common.content.ContentPart.ContentPartText;
@@ -53,9 +53,10 @@ public class ChatAzureDemo extends ChatDemo {
     }
 
     public static void main(String[] args) {
-        var openAI = SimpleOpenAIAzure.builder()
+        var openAI = SimpleOpenAI.builder()
                 .apiKey(System.getenv("AZURE_OPENAI_API_KEY"))
-                .apiVersion(System.getenv("AZURE_OPENAI_API_VERSION"))
+                .isAzure(true)
+                .azureApiVersion(System.getenv("AZURE_OPENAI_API_VERSION"))
                 .baseUrl(System.getenv("AZURE_OPENAI_BASE_URL"))
                 .build();
         var demo = new ChatAzureDemo(openAI, "N/A");

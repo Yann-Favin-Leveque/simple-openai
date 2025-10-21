@@ -1,6 +1,8 @@
 package io.github.sashirestela.openai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.sashirestela.cleverclient.http.HttpRequestData;
+import io.github.sashirestela.cleverclient.support.ContentType;
 import io.github.sashirestela.openai.OpenAIRealtime.BaseRealtimeConfig;
 import io.github.sashirestela.openai.support.Constant;
 import io.github.sashirestela.slimvalidator.constraints.Required;
@@ -11,10 +13,14 @@ import lombok.experimental.SuperBuilder;
 
 import java.net.http.HttpClient;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
+import java.util.regex.Pattern;
 
 /**
- * The standard OpenAI implementation which implements the full services.
+ * Unified OpenAI implementation supporting both standard OpenAI and Azure OpenAI.
+ * Automatically handles URL construction and headers based on provider type.
  */
 public class SimpleOpenAI extends BaseSimpleOpenAI {
 
@@ -22,36 +28,63 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
      * Constructor used to generate a builder.
      *
      * @param apiKey         Identifier to be used for authentication. Mandatory.
-     * @param organizationId Organization's id to be charged for usage. Optional.
-     * @param projectId      Project's id to provide access to a single project. Optional.
-     * @param baseUrl        Host's url, If not provided, it'll be 'https://api.openai.com'. Optional.
-     * @param httpClient     A {@link java.net.http.HttpClient HttpClient} object. One is created by
-     *                       default if not provided. Optional.
+     * @param organizationId Organization's id to be charged for usage (OpenAI only). Optional.
+     * @param projectId      Project's id to provide access to a single project (OpenAI only). Optional.
+     * @param baseUrl        Host's url. For OpenAI, defaults to 'https://api.openai.com'. For Azure, provide resource URL. Optional for OpenAI, Mandatory for Azure.
+     * @param httpClient     A {@link java.net.http.HttpClient HttpClient} object. One is created by default if not provided. Optional.
      * @param objectMapper   Provides Json conversions either to and from objects. Optional.
-     * @param realtimeConfig Configuration for websocket Realtime API. Optional.
+     * @param realtimeConfig Configuration for websocket Realtime API (OpenAI only). Optional.
+     * @param isAzure        Whether this is an Azure OpenAI instance. Defaults to false.
+     * @param azureApiVersion Azure OpenAI API version (e.g., "2024-08-01-preview"). Required if isAzure=true.
      */
     @Builder
-    public SimpleOpenAI(@NonNull String apiKey, String organizationId, String projectId, String baseUrl,
-            HttpClient httpClient, ObjectMapper objectMapper, RealtimeConfig realtimeConfig) {
+    public SimpleOpenAI(@NonNull String apiKey,
+                       String organizationId,
+                       String projectId,
+                       String baseUrl,
+                       HttpClient httpClient,
+                       ObjectMapper objectMapper,
+                       RealtimeConfig realtimeConfig,
+                       Boolean isAzure,
+                       String azureApiVersion) {
         super(prepareBaseSimpleOpenAIArgs(apiKey, organizationId, projectId, baseUrl, httpClient, objectMapper,
-                realtimeConfig));
+                realtimeConfig, isAzure != null && isAzure, azureApiVersion));
     }
 
-    public static BaseSimpleOpenAIArgs prepareBaseSimpleOpenAIArgs(String apiKey, String organizationId,
-            String projectId, String baseUrl, HttpClient httpClient, ObjectMapper objectMapper,
-            RealtimeConfig realtimeConfig) {
+    /**
+     * Prepares configuration arguments for both OpenAI and Azure OpenAI.
+     */
+    public static BaseSimpleOpenAIArgs prepareBaseSimpleOpenAIArgs(
+            String apiKey,
+            String organizationId,
+            String projectId,
+            String baseUrl,
+            HttpClient httpClient,
+            ObjectMapper objectMapper,
+            RealtimeConfig realtimeConfig,
+            boolean isAzure,
+            String azureApiVersion) {
 
+        // Setup headers based on provider
         var headers = new HashMap<String, String>();
-        headers.put(Constant.AUTHORIZATION_HEADER, Constant.BEARER_AUTHORIZATION + apiKey);
-        if (organizationId != null) {
-            headers.put(Constant.OPENAI_ORG_HEADER, organizationId);
-        }
-        if (projectId != null) {
-            headers.put(Constant.OPENAI_PRJ_HEADER, projectId);
+
+        if (isAzure) {
+            // Azure uses api-key header
+            headers.put(Constant.AZURE_APIKEY_HEADER, apiKey);
+        } else {
+            // OpenAI uses Authorization: Bearer
+            headers.put(Constant.AUTHORIZATION_HEADER, Constant.BEARER_AUTHORIZATION + apiKey);
+            if (organizationId != null) {
+                headers.put(Constant.OPENAI_ORG_HEADER, organizationId);
+            }
+            if (projectId != null) {
+                headers.put(Constant.OPENAI_PRJ_HEADER, projectId);
+            }
         }
 
+        // Setup realtime config (OpenAI only)
         BaseRealtimeConfig baseRealtimeConfig = null;
-        if (realtimeConfig != null) {
+        if (!isAzure && realtimeConfig != null) {
             var realtimeHeaders = new HashMap<String, String>();
             realtimeHeaders.put(Constant.AUTHORIZATION_HEADER, Constant.BEARER_AUTHORIZATION + apiKey);
             realtimeHeaders.put(Constant.OPENAI_BETA_HEADER, Constant.OPENAI_REALTIME_VERSION);
@@ -65,20 +98,132 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
                     .build();
         }
 
+        // Setup request interceptor for Azure
+        UnaryOperator<HttpRequestData> requestInterceptor = null;
+        if (isAzure) {
+            final String finalAzureApiVersion = azureApiVersion;
+            requestInterceptor = request -> {
+                var url = request.getUrl();
+                var contentType = request.getContentType();
+
+                // Modify body if needed
+                if (contentType != null) {
+                    var body = modifyBodyForAzure(request, contentType, url);
+                    request.setBody(body);
+                }
+
+                // Modify URL for Azure
+                url = buildAzureUrl(url, finalAzureApiVersion);
+                request.setUrl(url);
+
+                return request;
+            };
+        }
+
+        // Build base arguments
         return BaseSimpleOpenAIArgs.builder()
-                .baseUrl(Optional.ofNullable(baseUrl).orElse(Constant.OPENAI_BASE_URL))
+                .baseUrl(isAzure ? baseUrl : Optional.ofNullable(baseUrl).orElse(Constant.OPENAI_BASE_URL))
                 .headers(headers)
                 .httpClient(httpClient)
+                .requestInterceptor(requestInterceptor)
                 .objectMapper(objectMapper)
                 .baseRealtimeConfig(baseRealtimeConfig)
                 .build();
     }
 
+    // ==================== AZURE HELPER METHODS ====================
+
     /**
-     * Generates an implementation of the Audios interface to handle requests.
-     *
-     * @return An instance of the interface.
+     * Extracts deployment name from Azure URL.
+     * Example: "/deployments/gpt-4o/chat/completions" -> "gpt-4o"
      */
+    private static String extractDeployment(String url) {
+        final String DEPLOYMENT_REGEX = "/deployments/([^/]+)/";
+        var pattern = Pattern.compile(DEPLOYMENT_REGEX);
+        var matcher = pattern.matcher(url);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    /**
+     * Builds Azure-compliant URL from OpenAI-style URL.
+     * - Adds api-version query parameter
+     * - Removes /v1 from path
+     * - Keeps deployment in path for chat/images endpoints
+     */
+    private static String buildAzureUrl(String url, String apiVersion) {
+        final String VERSION_REGEX = "(/v\\d+\\.*\\d*)";
+        final String DEPLOYMENT_REGEX = "/deployments/[^/]+/";
+        final String CHAT_COMPLETIONS_LITERAL = "/chat/completions";
+        final String IMAGES_GENERATIONS_LITERAL = "/images/generations";
+
+        // Add api-version parameter
+        url += (url.contains("?") ? "&" : "?") + Constant.AZURE_API_VERSION + "=" + apiVersion;
+
+        // Remove version path (e.g., /v1)
+        url = url.replaceFirst(VERSION_REGEX, "");
+
+        // Keep deployment in URL for /chat/completions and /images/generations calls
+        if (!url.contains(CHAT_COMPLETIONS_LITERAL) && !url.contains(IMAGES_GENERATIONS_LITERAL)) {
+            url = url.replaceFirst(DEPLOYMENT_REGEX, "/");
+        }
+
+        return url;
+    }
+
+    /**
+     * Modifies request body for Azure compatibility.
+     * - For assistants: adds deployment as model
+     * - For other endpoints: removes model field (it's in URL)
+     */
+    @SuppressWarnings("unchecked")
+    private static Object modifyBodyForAzure(HttpRequestData request, ContentType contentType, String url) {
+        var deployment = extractDeployment(url);
+        var body = request.getBody();
+
+        if (contentType.equals(ContentType.APPLICATION_JSON)) {
+            return modifyJsonBody(url, (String) body, deployment);
+        } else {
+            return modifyMapBody(url, (Map<String, Object>) body, deployment);
+        }
+    }
+
+    /**
+     * Modifies JSON string body for Azure.
+     */
+    private static Object modifyJsonBody(String url, String body, String deployment) {
+        final String MODEL_ENTRY_REGEX = "\"model\"\\s*:\\s*\"[^\"]+\"\\s*,?\\s*";
+        final String TRAILING_COMMA_REGEX = ",\\s*}";
+        final String CLOSING_BRACE = "}";
+        final String MODEL_LITERAL = "model";
+        final String ASSISTANTS_LITERAL = "/assistants";
+
+        var model = "";
+        if (url.contains(ASSISTANTS_LITERAL)) {
+            model = "\"" + MODEL_LITERAL + "\":\"" + deployment + "\",";
+        }
+        body = body.replaceFirst(MODEL_ENTRY_REGEX, model);
+        body = body.replaceFirst(TRAILING_COMMA_REGEX, CLOSING_BRACE);
+
+        return body;
+    }
+
+    /**
+     * Modifies Map body for Azure.
+     */
+    private static Object modifyMapBody(String url, Map<String, Object> body, String deployment) {
+        final String ASSISTANTS_LITERAL = "/assistants";
+        final String MODEL_LITERAL = "model";
+
+        if (url.contains(ASSISTANTS_LITERAL)) {
+            body.put(MODEL_LITERAL, deployment);
+        } else {
+            body.remove(MODEL_LITERAL);
+        }
+        return body;
+    }
+
+    // ==================== SERVICE METHODS ====================
+
     @Override
     public OpenAI.Audios audios() {
         if (audioService == null) {
@@ -87,11 +232,6 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         return audioService;
     }
 
-    /**
-     * Generates an implementation of the Audios interface to handle requests.
-     *
-     * @return An instance of the interface.
-     */
     @Override
     public OpenAI.Batches batches() {
         if (batchService == null) {
@@ -100,11 +240,6 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         return batchService;
     }
 
-    /**
-     * Generates an implementation of the Completions interface to handle requests.
-     *
-     * @return An instance of the interface.
-     */
     @Override
     public OpenAI.Completions completions() {
         if (completionService == null) {
@@ -113,11 +248,6 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         return completionService;
     }
 
-    /**
-     * Generates an implementation of the Embeddings interface to handle requests.
-     *
-     * @return An instance of the interface.
-     */
     @Override
     public OpenAI.Embeddings embeddings() {
         if (embeddingService == null) {
@@ -126,11 +256,6 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         return embeddingService;
     }
 
-    /**
-     * Generates an implementation of the FineTunings interface to handle requests.
-     *
-     * @return An instance of the interface.
-     */
     @Override
     public OpenAI.FineTunings fineTunings() {
         if (fineTuningService == null) {
@@ -139,11 +264,6 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         return fineTuningService;
     }
 
-    /**
-     * Generates an implementation of the Images interface to handle requests.
-     *
-     * @return An instance of the interface.
-     */
     @Override
     public OpenAI.Images images() {
         if (imageService == null) {
@@ -152,11 +272,6 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         return imageService;
     }
 
-    /**
-     * Generates an implementation of the Models interface to handle requests.
-     *
-     * @return An instance of the interface.
-     */
     @Override
     public OpenAI.Models models() {
         if (modelService == null) {
@@ -165,11 +280,6 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         return modelService;
     }
 
-    /**
-     * Generates an implementation of the Moderations interface to handle requests.
-     *
-     * @return An instance of the interface.
-     */
     @Override
     public OpenAI.Moderations moderations() {
         if (moderationService == null) {
@@ -178,11 +288,6 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         return moderationService;
     }
 
-    /**
-     * Generates an implementation of the Uploads interface to handle requests.
-     *
-     * @return An instance of the interface.
-     */
     @Override
     public OpenAI.Uploads uploads() {
         if (uploadService == null) {

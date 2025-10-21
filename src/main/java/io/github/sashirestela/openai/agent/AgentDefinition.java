@@ -24,8 +24,7 @@ import java.util.List;
  *   "temperature": 0.7,
  *   "retrieval": false,
  *   "responseTimeout": 120000,
- *   "openAiId": "asst_abc123",
- *   "openAiAzureIds": ["asst_azure1", "asst_azure2"]
+ *   "assistantIds": ["asst_openai_123", "asst_azure1_456", "asst_azure2_789"]
  * }
  * }</pre>
  *
@@ -106,17 +105,12 @@ public class AgentDefinition {
     private Boolean createOnAppStart;
 
     /**
-     * OpenAI Assistant ID (for standard OpenAI API).
+     * Assistant IDs for each configured instance.
+     * Index corresponds to instance index in AgentService.
      * This field is persisted after agent creation.
+     * Example: ["asst_openai_123", "asst_azure1_456", "asst_azure2_789"]
      */
-    @JsonProperty("openAiId")
-    private String openAiId;
-
-    /**
-     * OpenAI Assistant IDs for Azure multi-instance deployments.
-     * This field is persisted after agent creation.
-     */
-    @JsonProperty("openAiAzureIds")
-    private List<String> openAiAzureIds;
+    @JsonProperty("assistantIds")
+    private List<String> assistantIds;
 
 }
