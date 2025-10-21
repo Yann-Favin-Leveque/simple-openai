@@ -24,7 +24,13 @@ A Java library to use the OpenAI Api in the simplest possible way.
   - [Chat Completion with Structured Outputs](#chat-completion-with-structured-outputs)
   - [Chat Completion Conversation Example](#chat-completion-conversation-example)
   - [Assistant v2 Conversation Example](#assistant-v2-conversation-example)
-  - [Realtime Conversation Example](#realtime-conversation-example) **NEW**
+  - [Realtime Conversation Example](#realtime-conversation-example)
+- [AgentService - High-Level Agent Orchestration](#-agentservice---high-level-agent-orchestration) **NEW**
+  - [Quick Start](#quick-start)
+  - [Configuration](#configuration)
+  - [Structured Outputs](#structured-outputs)
+  - [Azure Multi-Instance Support](#azure-multi-instance-support)
+  - [Vector Store RAG](#vector-store-rag)
 - [Support for Additional OpenAI Providers](#-support-for-additional-openai-providers)
   - [Azure OpenAI](#azure-openai)
   - [Anyscale](#anyscale)
@@ -917,6 +923,184 @@ Thread was deleted: true
 In this example you can see the code to establish a speech-to-speech conversation between you and the model using your microphone and your speaker. See the full code on:
 
 [RealtimeDemo.java](src/demo/java/io/github/sashirestela/openai/demo/RealtimeDemo.java)
+
+## 🤖 AgentService - High-Level Agent Orchestration
+**AgentService** provides a powerful, high-level abstraction for managing OpenAI Assistants with advanced features like structured outputs, multi-instance Azure support, rate limiting, and automatic retries.
+
+### Quick Start
+Create and configure an AgentService instance:
+```java
+import io.github.sashirestela.openai.agent.*;
+
+// Configure the service
+AgentServiceConfig config = AgentServiceConfig.builder()
+    .openAiApiKey(System.getenv("OPENAI_API_KEY"))
+    .agentResultClassPackage("com.example.results")
+    .requestsPerSecond(5)
+    .maxRetries(3)
+    .build();
+
+// Validate configuration
+config.validate();
+
+// Note: Full AgentService initialization coming in next release
+```
+
+### Configuration
+AgentService supports flexible configuration for both OpenAI and Azure:
+
+**OpenAI Configuration:**
+```java
+AgentServiceConfig config = AgentServiceConfig.builder()
+    .openAiApiKey("sk-...")
+    .openAiBaseUrl("https://api.openai.com/v1")
+    .agentResultClassPackage("com.example.results")
+    .requestsPerSecond(5)
+    .maxRetries(3)
+    .defaultResponseTimeout(120000L)  // 2 minutes
+    .build();
+```
+
+**Azure Multi-Instance Configuration:**
+```java
+AgentServiceConfig config = AgentServiceConfig.builder()
+    .useAzure(true)
+    .azureInstanceCount(2)
+    .azureApiKeys(List.of("key1", "key2"))
+    .azureBaseUrls(List.of(
+        "https://instance1.openai.azure.com/",
+        "https://instance2.openai.azure.com/"
+    ))
+    .azureApiVersion("2024-08-01-preview")
+    .agentResultClassPackage("com.example.results")
+    .requestsPerSecond(10)  // Higher limit with 2 instances
+    .build();
+```
+
+### Structured Outputs
+Define type-safe result classes for guaranteed JSON schema compliance:
+
+```java
+// Define your result class
+public class WeatherResult implements AgentResult {
+    public String location;
+    public double temperature;
+    public String conditions;
+    public String recommendation;
+}
+
+// Create agent with structured output
+Agent weatherAgent = Agent.builder()
+    .id("weather-assistant")
+    .name("Weather Assistant")
+    .model("gpt-4o")
+    .instructions("Provide weather information in structured format.")
+    .resultClass("WeatherResult")
+    .temperature(0.7)
+    .build();
+
+// Request and get typed response
+// String jsonResponse = service.requestAgent("weather-assistant",
+//     "What's the weather in Tokyo?", null, new HashMap<>()).join();
+// WeatherResult result = service.mapResponse(jsonResponse, "WeatherResult");
+```
+
+**Benefits:**
+- ✓ Type-safe responses
+- ✓ Automatic JSON Schema generation
+- ✓ Guaranteed compliance with schema
+- ✓ No manual JSON parsing
+
+### Azure Multi-Instance Support
+AgentService provides automatic load balancing across multiple Azure deployments:
+
+**Features:**
+- Round-robin load balancing
+- Independent rate limits per instance
+- Automatic failover
+- Instance-aware assistant ID mapping
+
+**How it works:**
+```java
+// Configure 3 Azure instances
+AgentServiceConfig config = AgentServiceConfig.builder()
+    .useAzure(true)
+    .azureInstanceCount(3)
+    .azureApiKeys(List.of("key1", "key2", "key3"))
+    .azureBaseUrls(List.of("url1", "url2", "url3"))
+    .azureApiVersion("2024-08-01-preview")
+    .build();
+
+// Agent with IDs for each instance
+Agent agent = Agent.builder()
+    .id("multi-instance-agent")
+    .name("Load Balanced Agent")
+    .openAiAzureIds(List.of("asst_1", "asst_2", "asst_3"))
+    .model("gpt-4o")
+    .build();
+
+// Requests are automatically balanced across all instances
+// service.requestAgent("multi-instance-agent", "Hello!", null, new HashMap<>());
+```
+
+### Vector Store RAG
+Integrate document search with retrieval-augmented generation:
+
+```java
+// 1. Upload document
+// File uploadedFile = service.uploadFile(Paths.get("document.pdf"));
+
+// 2. Create vector store
+// String vectorStoreId = service.createVectorStore(
+//     "Knowledge Base",
+//     List.of(uploadedFile.getId())
+// ).join();
+
+// 3. Request with vector store
+// String response = service.requestAgentWithVectorStorage(
+//     "research-assistant",
+//     "Summarize the key findings",
+//     vectorStoreId
+// ).join();
+
+// 4. Clean up
+// service.deleteVectorStore(vectorStoreId);
+```
+
+**Supported features:**
+- Semantic search over documents
+- Automatic context retrieval
+- Up to 10,000 files per store
+- PDF, TXT, MD, and other formats
+
+### Additional Features
+
+**Rate Limiting:**
+- Token bucket algorithm (Bucket4j)
+- Configurable requests per second
+- Automatic backpressure handling
+
+**Retry Logic:**
+- Exponential backoff
+- Configurable max retries
+- Smart delay calculation for rate limits and errors
+
+**Batch Processing:**
+- 50% cost reduction vs real-time API
+- Process thousands of requests asynchronously
+- 24-hour completion window
+
+**Image Generation:**
+- DALL-E 2 and DALL-E 3 support
+- Optional prompt sanitization fallback
+- Content policy violation handling
+
+**Chat Completions:**
+- Direct Chat Completions API access
+- Structured outputs with JSON Schema
+- Stateless conversations
+
+For complete examples, see [AgentServiceDemo.java](src/demo/java/io/github/sashirestela/openai/demo/AgentServiceDemo.java)
 
 ## ✴ Support for Additional OpenAI Providers
 Simple-OpenAI can be used with additional providers that are compatible with the OpenAI API. At this moment, there is support for the following additional providers:

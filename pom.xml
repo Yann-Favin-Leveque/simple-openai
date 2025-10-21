@@ -6,12 +6,12 @@
 
     <groupId>io.github.Yann-Favin-Leveque</groupId>
     <artifactId>simple-openai</artifactId>
-    <version>3.17.0</version>
+    <version>3.18.0</version>
   <packaging>jar</packaging>
 
   <name>simple-openai</name>
-  <description>A Java library to use the OpenAI API in the simplest possible way.</description>
-  <url>https://github.com/sashirestela/simple-openai</url>
+  <description>A Java library to use the OpenAI API in the simplest possible way. Fork with AgentService for high-level orchestration.</description>
+  <url>https://github.com/Yann-Favin-Leveque/simple-openai</url>
 
 
   <licenses>
@@ -23,27 +23,33 @@
 
   <developers>
     <developer>
+      <name>Yann Favin-Lévêque</name>
+      <email>yann.favin.leveque@gmail.com</email>
+      <organization>Yann Favin-Lévêque</organization>
+      <organizationUrl>https://github.com/Yann-Favin-Leveque</organizationUrl>
+    </developer>
+    <developer>
       <name>Sashir Estela</name>
       <email>sashirestela@yahoo.com</email>
       <organization>Sashir Estela</organization>
       <organizationUrl>https://www.linkedin.com/in/sashirestela/</organizationUrl>
+      <roles>
+        <role>Original Author</role>
+      </roles>
     </developer>
   </developers>
 
   <scm>
-    <connection>scm:git:git://github.com/sashirestela/simple-openai.git</connection>
-    <developerConnection>scm:git:ssh://github.com/sashirestela/simple-openai.git</developerConnection>
-    <url>https://github.com/sashirestela/simple-openai/tree/main</url>
+    <connection>scm:git:git://github.com/Yann-Favin-Leveque/simple-openai.git</connection>
+    <developerConnection>scm:git:ssh://github.com/Yann-Favin-Leveque/simple-openai.git</developerConnection>
+    <url>https://github.com/Yann-Favin-Leveque/simple-openai/tree/main</url>
   </scm>
 
   <distributionManagement>
-    <snapshotRepository>
-      <id>ossrh</id>
-      <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
-    </snapshotRepository>
     <repository>
-      <id>ossrh</id>
-      <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+      <id>github</id>
+      <name>GitHub Yann-Favin-Leveque Apache Maven Packages</name>
+      <url>https://maven.pkg.github.com/Yann-Favin-Leveque/simple-openai</url>
     </repository>
   </distributionManagement>
 

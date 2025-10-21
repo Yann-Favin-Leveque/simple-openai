@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn clean compile:*)",
+      "Bash(apt-get update:*)",
+      "Bash(apt-get install:*)",
+      "Read(//c//**)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" clean compile)",
+      "Bash(export JAVA_HOME=\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/jbr\")",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" clean compile -DskipTests)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" compile -DskipTests)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" test -Dtest=AgentServiceConfigTest,AgentTest,AgentResultTest)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" clean test)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" test)",
+      "WebFetch(domain:github.com)",
+      "Bash(git remote add:*)",
+      "Bash(git fetch:*)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" test -Dtest=AgentServiceConfigTest)",
+      "Bash(test -f:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

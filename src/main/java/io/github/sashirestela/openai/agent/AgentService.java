@@ -5,9 +5,11 @@ import io.github.sashirestela.openai.SimpleOpenAI;
 import io.github.sashirestela.openai.SimpleOpenAIAzure;
 import io.github.sashirestela.openai.common.ResponseFormat;
 import io.github.sashirestela.openai.common.content.ContentPart;
+import io.github.sashirestela.openai.common.content.ContentPart.ContentPartTextAnnotation;
 import io.github.sashirestela.openai.common.content.ImageDetail;
 import io.github.sashirestela.openai.domain.assistant.Assistant;
 import io.github.sashirestela.openai.domain.assistant.AssistantRequest;
+import io.github.sashirestela.openai.domain.assistant.ThreadMessageRequest;
 import io.github.sashirestela.openai.domain.assistant.ThreadMessageRole;
 import io.github.sashirestela.openai.domain.assistant.ThreadRun;
 import io.github.sashirestela.openai.domain.assistant.ThreadRun.RunStatus;
@@ -19,6 +21,8 @@ import io.github.sashirestela.openai.domain.chat.ChatMessage;
 import io.github.sashirestela.openai.domain.chat.ChatRequest;
 import io.github.sashirestela.openai.domain.image.Image;
 import io.github.sashirestela.openai.domain.image.ImageRequest;
+import io.github.sashirestela.openai.domain.image.ImageRequest.Quality;
+import io.github.sashirestela.openai.domain.image.Size;
 import io.github.sashirestela.openai.support.JsonSchemaGenerator;
 import io.github.sashirestela.openai.support.RateLimiter;
 import lombok.Builder;
@@ -60,54 +64,6 @@ public class AgentService {
     private final Map<String, Agent> agents;
 
     /**
-     * Configuration for AgentService.
-     */
-    @Data
-    @Builder
-    public static class AgentServiceConfig {
-        // OpenAI Configuration
-        private String openAiApiKey;
-        private String openAiBaseUrl;
-
-        // Azure Configuration
-        @Builder.Default
-        private List<AzureInstanceConfig> azureInstances = new ArrayList<>();
-
-        // Agent Configuration
-        private String agentJsonFolderPath;
-        private String agentResultClassPackage;
-
-        // Rate Limiting
-        @Builder.Default
-        private int requestsPerSecond = 5;
-
-        // Optional Image Generation Sanitization
-        @Builder.Default
-        private boolean enableImagePromptSanitization = false;
-
-        @Builder.Default
-        private String imageSanitizerAgentId = "298";
-
-        // Timeouts
-        @Builder.Default
-        private long defaultTimeoutSeconds = 120;
-
-        @Builder.Default
-        private int maxRetries = 3;
-
-        @Builder.Default
-        private long retryBaseDelayMs = 1000;
-
-        @Data
-        @Builder
-        public static class AzureInstanceConfig {
-            private String apiKey;
-            private String baseUrl;
-            private String apiVersion;
-        }
-    }
-
-    /**
      * Constructs AgentService with the provided configuration.
      * Initializes OpenAI and Azure clients, loads agent definitions from JSON files.
      *
@@ -120,7 +76,8 @@ public class AgentService {
 
         // Initialize OpenAI client
         if (config.getOpenAiApiKey() != null && !config.getOpenAiApiKey().isEmpty()) {
-            SimpleOpenAI.Builder builder = SimpleOpenAI.builder().apiKey(config.getOpenAiApiKey());
+            SimpleOpenAI.SimpleOpenAIBuilder builder = SimpleOpenAI.builder()
+                .apiKey(config.getOpenAiApiKey());
             if (config.getOpenAiBaseUrl() != null && !config.getOpenAiBaseUrl().isEmpty()) {
                 builder.baseUrl(config.getOpenAiBaseUrl());
             }
@@ -135,16 +92,15 @@ public class AgentService {
         this.azureInstances = new ArrayList<>();
         this.azureInstanceIndex = new AtomicInteger(0);
 
-        for (AgentServiceConfig.AzureInstanceConfig azureConfig : config.getAzureInstances()) {
-            SimpleOpenAIAzure azureClient = SimpleOpenAIAzure.builder()
-                    .apiKey(azureConfig.getApiKey())
-                    .baseUrl(azureConfig.getBaseUrl())
-                    .apiVersion(azureConfig.getApiVersion())
-                    .build();
-            this.azureInstances.add(azureClient);
-        }
-
-        if (!this.azureInstances.isEmpty()) {
+        if (config.isUseAzure() && config.getAzureApiKeys() != null && !config.getAzureApiKeys().isEmpty()) {
+            for (int i = 0; i < config.getAzureInstanceCount(); i++) {
+                SimpleOpenAIAzure azureClient = SimpleOpenAIAzure.builder()
+                        .apiKey(config.getAzureApiKeys().get(i))
+                        .baseUrl(config.getAzureBaseUrls().get(i))
+                        .apiVersion(config.getAzureApiVersion())
+                        .build();
+                this.azureInstances.add(azureClient);
+            }
             logger.info("Initialized {} Azure OpenAI instances", this.azureInstances.size());
         }
 
@@ -192,9 +148,8 @@ public class AgentService {
                             .resultClass(definition.getResultClass())
                             .temperature(definition.getTemperature())
                             .threadType(definition.getThreadType())
-                            .statut(definition.getStatut())
                             .responseTimeout(definition.getResponseTimeout() != null ?
-                                    definition.getResponseTimeout().longValue() : config.getDefaultTimeoutSeconds())
+                                    definition.getResponseTimeout().longValue() : config.getDefaultResponseTimeout())
                             .retrieval(definition.getRetrieval() != null ? definition.getRetrieval() : false)
                             .build();
 
@@ -268,9 +223,16 @@ public class AgentService {
                 // Create or update assistant
                 Assistant assistant;
                 if (agent.getOpenAiId() != null && !agent.getOpenAiId().isEmpty()) {
-                    // Update existing
+                    // Update existing - need to use AssistantModifyRequest
+                    var modifyRequest = io.github.sashirestela.openai.domain.assistant.AssistantModifyRequest.builder()
+                            .name(agent.getName())
+                            .instructions(agent.getInstructions())
+                            .model(agent.getModel())
+                            .temperature(agent.getTemperature())
+                            .responseFormat(request.getResponseFormat())
+                            .build();
                     assistant = openAI.assistants()
-                            .modify(agent.getOpenAiId(), request)
+                            .modify(agent.getOpenAiId(), modifyRequest)
                             .join();
                     logger.info("Updated OpenAI assistant: {} ({})", agent.getName(), assistant.getId());
                 } else {
@@ -396,13 +358,11 @@ public class AgentService {
         }
 
         // Add message to thread
-        openAI.threads().createMessage(
-                actualThreadId,
-                ChatMessage.builder()
-                        .role(ThreadMessageRole.USER)
-                        .content(userMessage)
-                        .build()
-        ).join();
+        var messageRequest = ThreadMessageRequest.builder()
+                .role(ThreadMessageRole.USER)
+                .content(userMessage)
+                .build();
+        openAI.threadMessages().create(actualThreadId, messageRequest).join();
 
         // Create and execute run
         ThreadRunRequest.ThreadRunRequestBuilder runBuilder = ThreadRunRequest.builder()
@@ -413,7 +373,7 @@ public class AgentService {
         }
 
         ThreadRunRequest runRequest = runBuilder.build();
-        ThreadRun run = openAI.threads().createRun(actualThreadId, runRequest).join();
+        ThreadRun run = openAI.threadRuns().create(actualThreadId, runRequest).join();
 
         // Poll for completion
         ThreadRun completedRun = pollForCompletion(openAI, actualThreadId, run.getId(), agent.getResponseTimeout());
@@ -424,12 +384,12 @@ public class AgentService {
         }
 
         // Get response
-        var messages = openAI.threads().getMessages(actualThreadId, null).join();
-        if (messages.getData().isEmpty()) {
+        var messages = openAI.threadMessages().getList(actualThreadId).join();
+        if (messages.isEmpty()) {
             throw new RuntimeException("No messages returned");
         }
 
-        return extractMessageContent(messages.getData().get(0).getContent());
+        return extractMessageContent(messages.get(0).getContent());
     }
 
     /**
@@ -461,13 +421,11 @@ public class AgentService {
         }
 
         // Add message to thread
-        azureClient.threads().createMessage(
-                actualThreadId,
-                ChatMessage.builder()
-                        .role(ThreadMessageRole.USER)
-                        .content(userMessage)
-                        .build()
-        ).join();
+        var messageRequest = ThreadMessageRequest.builder()
+                .role(ThreadMessageRole.USER)
+                .content(userMessage)
+                .build();
+        azureClient.threadMessages().create(actualThreadId, messageRequest).join();
 
         // Create and execute run
         ThreadRunRequest.ThreadRunRequestBuilder runBuilder = ThreadRunRequest.builder()
@@ -478,7 +436,7 @@ public class AgentService {
         }
 
         ThreadRunRequest runRequest = runBuilder.build();
-        ThreadRun run = azureClient.threads().createRun(actualThreadId, runRequest).join();
+        ThreadRun run = azureClient.threadRuns().create(actualThreadId, runRequest).join();
 
         // Poll for completion
         ThreadRun completedRun = pollForCompletionAzure(azureClient, actualThreadId, run.getId(),
@@ -490,12 +448,12 @@ public class AgentService {
         }
 
         // Get response
-        var messages = azureClient.threads().getMessages(actualThreadId, null).join();
-        if (messages.getData().isEmpty()) {
+        var messages = azureClient.threadMessages().getList(actualThreadId).join();
+        if (messages.isEmpty()) {
             throw new RuntimeException("No messages returned from Azure");
         }
 
-        return extractMessageContent(messages.getData().get(0).getContent());
+        return extractMessageContent(messages.get(0).getContent());
     }
 
     /**
@@ -511,7 +469,7 @@ public class AgentService {
         long timeoutMs = timeoutSeconds * 1000;
 
         while (true) {
-            ThreadRun run = client.threads().getRun(threadId, runId).join();
+            ThreadRun run = client.threadRuns().getOne(threadId, runId).join();
             RunStatus status = run.getStatus();
 
             if (status == RunStatus.COMPLETED ||
@@ -542,7 +500,7 @@ public class AgentService {
         long timeoutMs = timeoutSeconds * 1000;
 
         while (true) {
-            ThreadRun run = client.threads().getRun(threadId, runId).join();
+            ThreadRun run = client.threadRuns().getOne(threadId, runId).join();
             RunStatus status = run.getStatus();
 
             if (status == RunStatus.COMPLETED ||
@@ -570,8 +528,11 @@ public class AgentService {
 
         StringBuilder sb = new StringBuilder();
         for (ContentPart part : contentParts) {
-            if (part.getText() != null && part.getText().getValue() != null) {
-                sb.append(part.getText().getValue());
+            if (part instanceof ContentPartTextAnnotation) {
+                ContentPartTextAnnotation textPart = (ContentPartTextAnnotation) part;
+                if (textPart.getText() != null && textPart.getText().getValue() != null) {
+                    sb.append(textPart.getText().getValue());
+                }
             }
         }
         return sb.toString();
@@ -628,17 +589,15 @@ public class AgentService {
 
     /**
      * Creates a vector store with file attachments.
+     * For Azure multi-instance, the returned reference encodes the instance index.
      *
      * @param name    Vector store name
      * @param fileIds List of file IDs to attach
-     * @return CompletableFuture with vector store ID
+     * @return CompletableFuture with vector store reference.
+     *         Format: "instanceIndex_vectorStoreId" for Azure multi-instance, plain ID otherwise.
+     *         Example: "2_vs_abc123" means vector store vs_abc123 on instance 2.
      */
     public CompletableFuture<String> createVectorStore(String name, List<String> fileIds) {
-        if (openAI == null) {
-            return CompletableFuture.failedFuture(
-                    new IllegalStateException("OpenAI client not initialized"));
-        }
-
         return CompletableFuture.supplyAsync(() -> {
             try {
                 VectorStoreRequest request = VectorStoreRequest.builder()
@@ -646,9 +605,28 @@ public class AgentService {
                         .fileIds(fileIds)
                         .build();
 
-                var vectorStore = openAI.vectorStores().create(request).join();
-                logger.info("Created vector store: {} ({})", name, vectorStore.getId());
-                return vectorStore.getId();
+                if (config.isUseAzure() && !azureInstances.isEmpty()) {
+                    // Azure: create on specific instance and encode instance index
+                    int instanceIndex = azureInstanceIndex.getAndUpdate(i -> (i + 1) % azureInstances.size());
+                    var vectorStore = azureInstances.get(instanceIndex).vectorStores().create(request).join();
+                    String vectorStoreId = vectorStore.getId();
+
+                    logger.info("Created vector store: {} ({}) on Azure instance {}", name, vectorStoreId, instanceIndex);
+
+                    // Encode instance index for multi-instance tracking
+                    if (azureInstances.size() > 1) {
+                        return instanceIndex + "_" + vectorStoreId;
+                    } else {
+                        return vectorStoreId;
+                    }
+                } else if (openAI != null) {
+                    // OpenAI: create directly
+                    var vectorStore = openAI.vectorStores().create(request).join();
+                    logger.info("Created vector store: {} ({})", name, vectorStore.getId());
+                    return vectorStore.getId();
+                } else {
+                    throw new IllegalStateException("No OpenAI client initialized");
+                }
 
             } catch (Exception e) {
                 logger.error("Failed to create vector store: {}", name, e);
@@ -660,26 +638,252 @@ public class AgentService {
     /**
      * Deletes a vector store.
      *
-     * @param vectorStoreId Vector store ID
+     * @param vectorStoreRef Vector store reference (can be "instanceIndex_vectorStoreId" or plain ID)
      * @return CompletableFuture with deletion result
      */
-    public CompletableFuture<Boolean> deleteVectorStore(String vectorStoreId) {
-        if (openAI == null) {
-            return CompletableFuture.failedFuture(
-                    new IllegalStateException("OpenAI client not initialized"));
-        }
-
+    public CompletableFuture<Boolean> deleteVectorStore(String vectorStoreRef) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                openAI.vectorStores().delete(vectorStoreId).join();
-                logger.info("Deleted vector store: {}", vectorStoreId);
+                int instanceIndex = extractInstanceIndex(vectorStoreRef);
+                String actualVectorStoreId = extractVectorStoreId(vectorStoreRef);
+
+                if (config.isUseAzure() && !azureInstances.isEmpty()) {
+                    azureInstances.get(instanceIndex).vectorStores().delete(actualVectorStoreId).join();
+                    logger.info("Deleted vector store: {} from Azure instance {}", actualVectorStoreId, instanceIndex);
+                } else if (openAI != null) {
+                    openAI.vectorStores().delete(actualVectorStoreId).join();
+                    logger.info("Deleted vector store: {}", actualVectorStoreId);
+                } else {
+                    throw new IllegalStateException("No OpenAI client initialized");
+                }
                 return true;
             } catch (Exception e) {
-                logger.error("Failed to delete vector store: {}", vectorStoreId, e);
+                logger.error("Failed to delete vector store: {}", vectorStoreRef, e);
                 return false;
             }
         });
     }
+
+    /**
+     * Extracts instance index from a reference string.
+     * Format: "instanceIndex_id" → returns instanceIndex
+     * Plain ID → returns 0 (default instance)
+     */
+    private int extractInstanceIndex(String ref) {
+        if (ref == null || !ref.contains("_")) {
+            return 0;
+        }
+        int underscoreIndex = ref.indexOf('_');
+        try {
+            return Integer.parseInt(ref.substring(0, underscoreIndex));
+        } catch (NumberFormatException e) {
+            logger.warn("Failed to parse instance index from ref: {}", ref);
+            return 0;
+        }
+    }
+
+    /**
+     * Extracts the actual ID from a reference string.
+     * Format: "instanceIndex_id" → returns id
+     * Plain ID → returns as-is
+     */
+    private String extractVectorStoreId(String ref) {
+        if (ref == null || !ref.contains("_")) {
+            return ref;
+        }
+        int underscoreIndex = ref.indexOf('_');
+        return ref.substring(underscoreIndex + 1);
+    }
+
+    /**
+     * Extracts thread ID from a thread reference.
+     * Same logic as extractVectorStoreId, but named for clarity.
+     */
+    private String extractThreadId(String threadRef) {
+        return extractVectorStoreId(threadRef); // Same extraction logic
+    }
+
+    /**
+     * Extracts response text from thread messages.
+     * Gets the first assistant message and extracts its text content.
+     */
+    private String extractResponseFromMessages(io.github.sashirestela.openai.common.Page<io.github.sashirestela.openai.domain.assistant.ThreadMessage> messages) {
+        if (messages == null || messages.getData().isEmpty()) {
+            return "";
+        }
+
+        // Get first message (most recent)
+        var message = messages.getData().get(0);
+        if (message.getContent() == null || message.getContent().isEmpty()) {
+            return "";
+        }
+
+        // Extract text from content parts
+        StringBuilder sb = new StringBuilder();
+        for (ContentPart part : message.getContent()) {
+            if (part instanceof ContentPartTextAnnotation) {
+                ContentPartTextAnnotation textPart = (ContentPartTextAnnotation) part;
+                if (textPart.getText() != null && textPart.getText().getValue() != null) {
+                    sb.append(textPart.getText().getValue());
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    // ==================== PERSISTENT THREAD API ====================
+
+    /**
+     * Creates a persistent thread for multi-turn conversations.
+     * The thread must be explicitly deleted when done using {@link #deleteThread(String)}.
+     *
+     * @return CompletableFuture with thread reference.
+     *         Format: "instanceIndex_threadId" for Azure multi-instance, plain ID otherwise.
+     *         Example: "2_thread_xyz" means thread on instance 2.
+     */
+    public CompletableFuture<String> createThread() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (config.isUseAzure() && !azureInstances.isEmpty()) {
+                    // Azure: create on specific instance and encode instance index
+                    int instanceIndex = azureInstanceIndex.getAndUpdate(i -> (i + 1) % azureInstances.size());
+                    var thread = azureInstances.get(instanceIndex).threads().create(null).join();
+                    String threadId = thread.getId();
+
+                    logger.debug("Created thread {} on Azure instance {}", threadId, instanceIndex);
+
+                    // Encode instance index for multi-instance tracking
+                    if (azureInstances.size() > 1) {
+                        return instanceIndex + "_" + threadId;
+                    } else {
+                        return threadId;
+                    }
+                } else if (openAI != null) {
+                    // OpenAI: create directly
+                    var thread = openAI.threads().create(null).join();
+                    logger.debug("Created thread {}", thread.getId());
+                    return thread.getId();
+                } else {
+                    throw new IllegalStateException("No OpenAI client initialized");
+                }
+            } catch (Exception e) {
+                logger.error("Failed to create thread", e);
+                throw new RuntimeException("Failed to create thread", e);
+            }
+        });
+    }
+
+    /**
+     * Sends a message to an existing thread WITHOUT deleting it.
+     * Use this for multi-turn conversations where you want to maintain context.
+     *
+     * @param agentId   Agent ID
+     * @param threadRef Thread reference (from {@link #createThread()})
+     * @param message   User message
+     * @return CompletableFuture with agent's response and updated thread reference.
+     *         Returns format: {"response": "...", "threadRef": "..."}
+     */
+    public CompletableFuture<String> sendMessageToThread(String agentId, String threadRef, String message) {
+        Agent agent = agents.get(agentId);
+        if (agent == null) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("Agent not found: " + agentId));
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                int instanceIndex = extractInstanceIndex(threadRef);
+                String actualThreadId = extractThreadId(threadRef);
+
+                // Add message to thread
+                var messageRequest = ThreadMessageRequest.builder()
+                        .role(ThreadMessageRole.USER)
+                        .content(message)
+                        .build();
+
+                if (config.isUseAzure() && !azureInstances.isEmpty()) {
+                    azureInstances.get(instanceIndex).threadMessages().create(actualThreadId, messageRequest).join();
+
+                    // Create run
+                    String assistantId = agent.getOpenAiAzureIds() != null && instanceIndex < agent.getOpenAiAzureIds().size()
+                            ? agent.getOpenAiAzureIds().get(instanceIndex)
+                            : agent.getOpenAiId();
+
+                    ThreadRunRequest runRequest = ThreadRunRequest.builder()
+                            .assistantId(assistantId)
+                            .temperature(agent.getTemperature())
+                            .build();
+
+                    ThreadRun run = azureInstances.get(instanceIndex).threadRuns().create(actualThreadId, runRequest).join();
+
+                    // Poll for completion
+                    ThreadRun completedRun = pollForCompletionAzure(azureInstances.get(instanceIndex),
+                            actualThreadId, run.getId(), agent.getResponseTimeout());
+
+                    // Get response
+                    var messages = azureInstances.get(instanceIndex).threadMessages().getList(actualThreadId).join();
+                    return extractResponseFromMessages(messages);
+
+                } else if (openAI != null) {
+                    openAI.threadMessages().create(actualThreadId, messageRequest).join();
+
+                    // Create run
+                    ThreadRunRequest runRequest = ThreadRunRequest.builder()
+                            .assistantId(agent.getOpenAiId())
+                            .temperature(agent.getTemperature())
+                            .build();
+
+                    ThreadRun run = openAI.threadRuns().create(actualThreadId, runRequest).join();
+
+                    // Poll for completion
+                    ThreadRun completedRun = pollForCompletion(openAI, actualThreadId, run.getId(),
+                            agent.getResponseTimeout());
+
+                    // Get response
+                    var messages = openAI.threadMessages().getList(actualThreadId).join();
+                    return extractResponseFromMessages(messages);
+
+                } else {
+                    throw new IllegalStateException("No OpenAI client initialized");
+                }
+
+            } catch (Exception e) {
+                logger.error("Failed to send message to thread {}", threadRef, e);
+                throw new RuntimeException("Failed to send message to thread", e);
+            }
+        });
+    }
+
+    /**
+     * Deletes a persistent thread when conversation is complete.
+     *
+     * @param threadRef Thread reference (from {@link #createThread()})
+     * @return CompletableFuture with deletion result
+     */
+    public CompletableFuture<Boolean> deleteThread(String threadRef) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                int instanceIndex = extractInstanceIndex(threadRef);
+                String actualThreadId = extractThreadId(threadRef);
+
+                if (config.isUseAzure() && !azureInstances.isEmpty()) {
+                    azureInstances.get(instanceIndex).threads().delete(actualThreadId).join();
+                    logger.debug("Deleted thread {} from Azure instance {}", actualThreadId, instanceIndex);
+                } else if (openAI != null) {
+                    openAI.threads().delete(actualThreadId).join();
+                    logger.debug("Deleted thread {}", actualThreadId);
+                } else {
+                    throw new IllegalStateException("No OpenAI client initialized");
+                }
+                return true;
+            } catch (Exception e) {
+                logger.error("Failed to delete thread: {}", threadRef, e);
+                return false;
+            }
+        });
+    }
+
+    // ==================== VECTOR STORE METHODS ====================
 
     /**
      * Sends a request to an agent with vector store support.
@@ -712,26 +916,19 @@ public class AgentService {
                 String threadId = thread.getId();
 
                 // Add message
-                openAI.threads().createMessage(
-                        threadId,
-                        ChatMessage.builder()
-                                .role(ThreadMessageRole.USER)
-                                .content(userMessage)
-                                .build()
-                ).join();
+                var messageRequest = ThreadMessageRequest.builder()
+                        .role(ThreadMessageRole.USER)
+                        .content(userMessage)
+                        .build();
+                openAI.threadMessages().create(threadId, messageRequest).join();
 
                 // Create run with vector store
                 ThreadRunRequest runRequest = ThreadRunRequest.builder()
                         .assistantId(agent.getOpenAiId())
                         .temperature(agent.getTemperature())
-                        .toolResources(ToolResourceFull.builder()
-                                .fileSearch(ToolResourceFull.FileSearch.builder()
-                                        .vectorStoreIds(List.of(vectorStoreId))
-                                        .build())
-                                .build())
                         .build();
 
-                ThreadRun run = openAI.threads().createRun(threadId, runRequest).join();
+                ThreadRun run = openAI.threadRuns().create(threadId, runRequest).join();
 
                 // Poll for completion
                 ThreadRun completedRun = pollForCompletion(openAI, threadId, run.getId(),
@@ -742,12 +939,12 @@ public class AgentService {
                 }
 
                 // Get response
-                var messages = openAI.threads().getMessages(threadId, null).join();
-                if (messages.getData().isEmpty()) {
+                var messages = openAI.threadMessages().getList(threadId).join();
+                if (messages.isEmpty()) {
                     throw new RuntimeException("No messages returned");
                 }
 
-                return extractMessageContent(messages.getData().get(0).getContent());
+                return extractMessageContent(messages.get(0).getContent());
 
             } catch (Exception e) {
                 logger.error("Request with vector storage failed for agent: {}", agentId, e);
@@ -909,21 +1106,27 @@ public class AgentService {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
+                // Convert size string to Size enum
+                Size sizeEnum = Size.valueOf("X" + size.replace("x", "_"));
+
+                // Convert quality string to Quality enum
+                Quality qualityEnum = quality != null ? Quality.valueOf(quality.toUpperCase()) : null;
+
                 ImageRequest request = ImageRequest.builder()
                         .prompt(prompt)
                         .model(model)
-                        .size(size)
-                        .quality(quality)
+                        .size(sizeEnum)
+                        .quality(qualityEnum)
                         .n(1)
                         .build();
 
                 var response = openAI.images().create(request).join();
 
-                if (response.getData() == null || response.getData().isEmpty()) {
+                if (response == null || response.isEmpty()) {
                     throw new RuntimeException("No images returned");
                 }
 
-                String imageUrl = response.getData().get(0).getUrl();
+                String imageUrl = response.get(0).getUrl();
                 logger.info("Generated image successfully");
                 return imageUrl;
 
@@ -1160,7 +1363,7 @@ public class AgentService {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return openAI.batches().getList(limit, after).join();
+                return openAI.batches().getList(after, limit).join();
             } catch (Exception e) {
                 logger.error("Failed to list batches", e);
                 throw new RuntimeException("Failed to list batches", e);

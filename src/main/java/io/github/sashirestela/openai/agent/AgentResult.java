@@ -3,27 +3,50 @@ package io.github.sashirestela.openai.agent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Interface for all agent result classes.
- * Provides a generic method for JSON deserialization.
+ * Base interface for typed agent responses with JSON Schema support.
+ * Implement this interface in your result classes to enable automatic
+ * JSON Schema generation and structured output mapping.
+ *
+ * <p>Example implementation:</p>
+ * <pre>{@code
+ * public class WeatherResult implements AgentResult {
+ *     public String location;
+ *     public double temperature;
+ *     public String conditions;
+ * }
+ * }</pre>
+ *
+ * <p>The implementing class will automatically:
+ * <ul>
+ *   <li>Generate a JSON Schema for OpenAI structured outputs</li>
+ *   <li>Be mapped from JSON responses using Jackson</li>
+ *   <li>Support nested objects and collections</li>
+ * </ul>
+ * </p>
+ *
+ * @see AgentService#requestAgent(String, Agent)
  */
 public interface AgentResult {
 
-    ObjectMapper MAPPER = new ObjectMapper();
+    /**
+     * Default JSON mapper for deserializing agent responses.
+     */
+    ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     /**
-     * Generic method to map JSON to an AgentResult implementation.
+     * Deserialize JSON string to the specified result class.
      *
-     * @param <T>   The target AgentResult type
-     * @param json  The JSON string to parse
-     * @param clazz The target class
-     * @return The deserialized instance
-     * @throws RuntimeException if deserialization fails
+     * @param json JSON string from agent response
+     * @param clazz Target class implementing AgentResult
+     * @param <T> Result type
+     * @return Deserialized object
+     * @throws RuntimeException if JSON parsing fails
      */
     static <T extends AgentResult> T jsonMapper(String json, Class<T> clazz) {
         try {
-            return MAPPER.readValue(json, clazz);
+            return JSON_MAPPER.readValue(json, clazz);
         } catch (Exception e) {
-            throw new RuntimeException("Error mapping JSON to " + clazz.getSimpleName() + ": " + e.getMessage(), e);
+            throw new RuntimeException("Failed to map JSON to " + clazz.getSimpleName(), e);
         }
     }
 
