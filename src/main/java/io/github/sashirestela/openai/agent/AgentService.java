@@ -56,8 +56,10 @@ public class AgentService {
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final AgentServiceConfig config;
-    private final List<SimpleOpenAI> instances;  // Unified list: OpenAI + Azure instances
+    private final List<SimpleOpenAI> instances;  // For agents/chat: OpenAI + Azure instances
+    private final List<SimpleOpenAI> imageInstances;  // For DALL-E: OpenAI + Azure DALL-E instances
     private final AtomicInteger instanceIndex;
+    private final AtomicInteger imageInstanceIndex;
     private final RateLimiter rateLimiter;
     private final Map<String, Agent> agents;
 
@@ -72,9 +74,11 @@ public class AgentService {
         this.config = config;
         this.agents = new ConcurrentHashMap<>();
         this.instances = new ArrayList<>();
+        this.imageInstances = new ArrayList<>();
         this.instanceIndex = new AtomicInteger(0);
+        this.imageInstanceIndex = new AtomicInteger(0);
 
-        // Initialize OpenAI client (if configured)
+        // Initialize OpenAI client (if configured) - can be used for BOTH agents and images
         if (config.getOpenAiApiKey() != null && !config.getOpenAiApiKey().isEmpty()) {
             SimpleOpenAI.SimpleOpenAIBuilder builder = SimpleOpenAI.builder()
                 .apiKey(config.getOpenAiApiKey())
@@ -85,11 +89,12 @@ public class AgentService {
             }
 
             SimpleOpenAI openAIClient = builder.build();
-            this.instances.add(openAIClient);
-            logger.info("Initialized OpenAI client");
+            this.instances.add(openAIClient);  // For agents/chat
+            this.imageInstances.add(openAIClient);  // For images (DALL-E)
+            logger.info("Initialized OpenAI client (agents + images)");
         }
 
-        // Initialize Azure clients (if configured)
+        // Initialize Azure clients for agents/chat (if configured)
         if (config.getAzureApiKeys() != null && !config.getAzureApiKeys().isEmpty()) {
             for (int i = 0; i < config.getAzureApiKeys().size(); i++) {
                 SimpleOpenAI azureClient = SimpleOpenAI.builder()
@@ -98,16 +103,30 @@ public class AgentService {
                         .isAzure(true)  // Azure OpenAI
                         .azureApiVersion(config.getAzureApiVersion())
                         .build();
-                this.instances.add(azureClient);
+                this.instances.add(azureClient);  // For agents/chat ONLY
             }
-            logger.info("Initialized {} Azure OpenAI instances", config.getAzureApiKeys().size());
+            logger.info("Initialized {} Azure OpenAI instances (agents/chat)", config.getAzureApiKeys().size());
+        }
+
+        // Initialize Azure DALL-E clients for images (if configured) - SEPARATE deployment
+        if (config.getAzureDalleApiKeys() != null && !config.getAzureDalleApiKeys().isEmpty()) {
+            for (int i = 0; i < config.getAzureDalleApiKeys().size(); i++) {
+                SimpleOpenAI azureDalleClient = SimpleOpenAI.builder()
+                        .apiKey(config.getAzureDalleApiKeys().get(i))
+                        .baseUrl(config.getAzureDalleBaseUrls().get(i))
+                        .isAzure(true)  // Azure DALL-E
+                        .azureApiVersion(config.getAzureDalleApiVersion())
+                        .build();
+                this.imageInstances.add(azureDalleClient);  // For images ONLY
+            }
+            logger.info("Initialized {} Azure DALL-E instances (images only)", config.getAzureDalleApiKeys().size());
         }
 
         if (this.instances.isEmpty()) {
-            throw new IllegalStateException("No OpenAI or Azure instances configured");
+            throw new IllegalStateException("No OpenAI or Azure instances configured for agents");
         }
 
-        logger.info("Total instances initialized: {} (OpenAI + Azure)", this.instances.size());
+        logger.info("Total agent instances: {} | Total image instances: {}", this.instances.size(), this.imageInstances.size());
 
         // Initialize rate limiter
         this.rateLimiter = new RateLimiter(config.getRequestsPerSecond());
@@ -120,7 +139,7 @@ public class AgentService {
     }
 
     /**
-     * Gets the next instance using round-robin.
+     * Gets the next instance using round-robin (for agents/chat).
      */
     private SimpleOpenAI getNextInstance() {
         int idx = instanceIndex.getAndUpdate(i -> (i + 1) % instances.size());
@@ -128,7 +147,18 @@ public class AgentService {
     }
 
     /**
-     * Gets a specific instance by index.
+     * Gets the next image instance using round-robin (for DALL-E).
+     */
+    private SimpleOpenAI getNextImageInstance() {
+        if (imageInstances.isEmpty()) {
+            throw new IllegalStateException("No image generation instances configured. Set OPENAI_KEY or OPENAI_AZURE_DALLEE_KEY.");
+        }
+        int idx = imageInstanceIndex.getAndUpdate(i -> (i + 1) % imageInstances.size());
+        return imageInstances.get(idx);
+    }
+
+    /**
+     * Gets a specific instance by index (for agents/chat).
      */
     private SimpleOpenAI getInstance(int index) {
         return instances.get(index);
@@ -1526,8 +1556,8 @@ public class AgentService {
                 // Rate limit check
                 rateLimiter.tryConsume();
 
-                // Get next instance using round-robin
-                SimpleOpenAI instance = getNextInstance();
+                // Get next IMAGE instance using round-robin (OpenAI + Azure DALL-E only)
+                SimpleOpenAI instance = getNextImageInstance();
 
                 // Create image request with b64_json response format
                 ImageRequest imageRequest = ImageRequest.builder()
