@@ -94,6 +94,7 @@ public class AgentDefinition {
     /**
      * Thread management type.
      */
+    @JsonAlias("thread_type")
     @JsonProperty("threadType")
     private String threadType;
 
