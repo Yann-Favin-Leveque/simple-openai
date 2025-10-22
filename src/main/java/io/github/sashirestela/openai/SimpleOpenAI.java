@@ -107,7 +107,7 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
                 var contentType = request.getContentType();
 
                 // Modify body if needed
-                if (contentType != null) {
+                if (contentType != null && request.getBody() != null) {
                     var body = modifyBodyForAzure(request, contentType, url);
                     request.setBody(body);
                 }
@@ -159,7 +159,7 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         // Add api-version parameter
         url += (url.contains("?") ? "&" : "?") + Constant.AZURE_API_VERSION + "=" + apiVersion;
 
-        // Remove version path (e.g., /v1)
+        // Remove version path (e.g., /v1) - Azure baseUrls already contain /openai
         url = url.replaceFirst(VERSION_REGEX, "");
 
         // Keep deployment in URL for /chat/completions and /images/generations calls
@@ -196,6 +196,11 @@ public class SimpleOpenAI extends BaseSimpleOpenAI {
         final String CLOSING_BRACE = "}";
         final String MODEL_LITERAL = "model";
         final String ASSISTANTS_LITERAL = "/assistants";
+
+        // Handle null body (e.g., GET requests, retrieve operations)
+        if (body == null) {
+            return null;
+        }
 
         var model = "";
         if (url.contains(ASSISTANTS_LITERAL)) {
