@@ -2,6 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.31.0] - 2025-11-06
+
+### Added
+
+#### Instance Enable/Disable Support
+- **`enabled` Field in InstanceConfig**: New optional boolean field (default: `true`)
+  - Allows temporarily disabling instances without removing them from configuration
+  - Set `"enabled": false` in instance JSON to skip loading
+  - Backward compatible: existing configurations without the field default to `enabled=true`
+- **Enhanced Logging**: Shows total vs enabled instances
+  - Format: `"Loaded X instance(s) from JSON configuration (Y total, X enabled)"`
+  - Example: `"Loaded 8 instance(s) from JSON configuration (9 total, 8 enabled)"`
+
+### Changed
+- **AgentService Constructor**: Filters instances to only load those with `enabled=true`
+- **InstanceConfig**: Added validation and JavaDoc for `enabled` field
+
+### Use Cases
+- **Cost Control**: Disable expensive instances temporarily
+- **Testing**: Enable/disable instances for testing different configurations
+- **Maintenance**: Disable instances undergoing maintenance without removing config
+- **Gradual Rollout**: Enable instances one at a time during deployment
+
+### Example
+```json
+[
+  {
+    "id": "openai-main",
+    "url": "https://api.openai.com/v1",
+    "key": "sk-xxx",
+    "models": "gpt-4o",
+    "provider": "openai",
+    "enabled": false
+  },
+  {
+    "id": "azure-backup",
+    "url": "https://my-resource.openai.azure.com",
+    "key": "azure-key",
+    "models": "gpt-4o",
+    "provider": "azure",
+    "apiVersion": "2024-08-01-preview",
+    "enabled": true
+  }
+]
+```
+
+### Tests
+- All 308 tests passing
+- Backward compatibility verified (configs without `enabled` field work correctly)
+
+---
+
 ## [3.18.0] - 2025-10-21
 
 ### Added - AgentService Enhancements
