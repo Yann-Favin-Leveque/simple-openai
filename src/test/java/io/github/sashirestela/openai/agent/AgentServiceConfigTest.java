@@ -19,8 +19,8 @@ class AgentServiceConfigTest {
                 .build();
 
         assertFalse(config.isUseAzure());
-        assertEquals("sk-test-key", config.getOpenAiApiKey());
-        assertEquals("https://api.openai.com/v1", config.getOpenAiBaseUrl());
+        assertEquals(List.of("sk-test-key"), config.getOpenAiApiKeys());
+        assertEquals(List.of("https://api.openai.com/v1"), config.getOpenAiBaseUrls());
         assertEquals("com.example", config.getAgentResultClassPackage());
         assertDoesNotThrow(config::validate);
     }
@@ -34,7 +34,6 @@ class AgentServiceConfigTest {
         ).build();
 
         assertTrue(config.isUseAzure());
-        assertEquals(1, config.getAzureInstanceCount());
         assertEquals(List.of("azure-key"), config.getAzureApiKeys());
         assertEquals(List.of("https://test.openai.azure.com/"), config.getAzureBaseUrls());
         assertEquals("2024-08-01-preview", config.getAzureApiVersion());
@@ -53,7 +52,7 @@ class AgentServiceConfigTest {
         ).build();
 
         assertTrue(config.isUseAzure());
-        assertEquals(3, config.getAzureInstanceCount());
+        assertEquals(3, config.getAzureApiKeys().size());
         assertEquals(apiKeys, config.getAzureApiKeys());
         assertEquals(baseUrls, config.getAzureBaseUrls());
         assertDoesNotThrow(config::validate);
@@ -72,47 +71,42 @@ class AgentServiceConfigTest {
     }
 
     @Test
-    void testValidationFailsWhenOpenAIKeyMissing() {
+    void testValidationFailsWhenNoProviderConfigured() {
         var config = AgentServiceConfig.builder()
-                .useAzure(false)
-                // Missing openAiApiKey!
+                // Missing both OpenAI and Azure config!
                 .build();
 
         var exception = assertThrows(IllegalArgumentException.class, config::validate);
-        assertTrue(exception.getMessage().contains("OpenAI API key is required"));
+        assertTrue(exception.getMessage().contains("At least one provider must be configured"));
     }
 
     @Test
-    void testValidationFailsWhenAzureKeysMissing() {
+    void testValidationFailsWhenAzureUrlsMissing() {
         var config = AgentServiceConfig.builder()
-                .provider(AgentServiceConfig.Provider.AZURE)
+                .azureApiKeys(List.of("key1", "key2"))
                 .azureApiVersion("2024-08-01-preview")
-                // Missing azureApiKeys and azureBaseUrls!
+                // Missing azureBaseUrls!
                 .build();
 
         var exception = assertThrows(IllegalArgumentException.class, config::validate);
-        assertTrue(exception.getMessage().contains("Azure API keys and base URLs are required"));
+        assertTrue(exception.getMessage().contains("Azure base URLs are required"));
     }
 
     @Test
-    void testValidationFailsWhenAzureInstanceCountMismatch() {
+    void testValidationFailsWhenAzureSizeMismatch() {
         var config = AgentServiceConfig.builder()
-                .provider(AgentServiceConfig.Provider.AZURE)
-                .azureInstanceCount(3)
-                .azureApiKeys(List.of("key1", "key2"))  // Only 2 keys
-                .azureBaseUrls(List.of("url1", "url2"))  // Only 2 URLs
+                .azureApiKeys(List.of("key1", "key2", "key3"))  // 3 keys
+                .azureBaseUrls(List.of("url1", "url2"))  // Only 2 URLs - mismatch!
                 .azureApiVersion("2024-08-01-preview")
                 .build();
 
         var exception = assertThrows(IllegalArgumentException.class, config::validate);
-        assertTrue(exception.getMessage().contains("must match"));
+        assertTrue(exception.getMessage().contains("must have the same size"));
     }
 
     @Test
     void testValidationFailsWhenAzureApiVersionMissing() {
         var config = AgentServiceConfig.builder()
-                .provider(AgentServiceConfig.Provider.AZURE)
-                .azureInstanceCount(1)
                 .azureApiKeys(List.of("key1"))
                 .azureBaseUrls(List.of("url1"))
                 // Missing azureApiVersion!
@@ -217,8 +211,7 @@ class AgentServiceConfigTest {
     void testBuilderPattern() {
         // Test that we can chain builder methods
         var config = AgentServiceConfig.builder()
-                .openAiApiKey("sk-test-key")
-                .useAzure(false)
+                .openAiApiKeys(List.of("sk-test-key"))
                 .requestsPerSecond(10)
                 .maxRetries(5)
                 .defaultResponseTimeout(60000L)
@@ -226,7 +219,7 @@ class AgentServiceConfigTest {
                 .build();
 
         assertNotNull(config);
-        assertEquals("sk-test-key", config.getOpenAiApiKey());
+        assertEquals(List.of("sk-test-key"), config.getOpenAiApiKeys());
         assertFalse(config.isUseAzure());
         assertEquals(10, config.getRequestsPerSecond());
         assertEquals("com.example", config.getAgentResultClassPackage());

@@ -1,5 +1,7 @@
 package io.github.sashirestela.openai.agent;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -28,7 +30,40 @@ import java.util.concurrent.Executor;
 @Builder
 public class AgentServiceConfig {
 
-    // === OpenAI Configuration ===
+    // === NEW: JSON-based Instance Configuration ===
+
+    /**
+     * JSON string containing instance configurations.
+     * This is the new recommended way to configure AgentService.
+     *
+     * <p>Example:</p>
+     * <pre>{@code
+     * [
+     *   {
+     *     "id": "openai-main",
+     *     "url": "https://api.openai.com/v1",
+     *     "key": "sk-xxx",
+     *     "models": "gpt-4o,text-embedding-3-small",
+     *     "provider": "openai",
+     *     "apiVersion": null
+     *   },
+     *   {
+     *     "id": "azure-eastus",
+     *     "url": "https://my-resource.cognitiveservices.azure.com",
+     *     "key": "azure-key",
+     *     "models": "gpt-4o,dall-e-3",
+     *     "provider": "azure",
+     *     "apiVersion": "2024-08-01-preview"
+     *   }
+     * ]
+     * }</pre>
+     *
+     * If this field is provided, it takes precedence over legacy configuration fields
+     * (openAiApiKeys, azureApiKeys, etc.).
+     */
+    private final String instancesJson;
+
+    // === LEGACY: OpenAI Configuration (deprecated in favor of instancesJson) ===
 
     /**
      * OpenAI API keys (one per instance).
@@ -336,6 +371,58 @@ public class AgentServiceConfig {
                 .azureApiKeys(apiKeys)
                 .azureBaseUrls(baseUrls)
                 .azureApiVersion(apiVersion);
+    }
+
+    // ==================== JSON PARSING ====================
+
+    /**
+     * Parse the instancesJson field into a list of InstanceConfig objects.
+     * This method is called internally by AgentService constructor.
+     *
+     * @return List of parsed InstanceConfig objects, or empty list if instancesJson is null/empty
+     * @throws IllegalArgumentException if JSON parsing fails or validation fails
+     */
+    public List<InstanceConfig> parseInstances() {
+        if (instancesJson == null || instancesJson.trim().isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<InstanceConfig> instances = mapper.readValue(
+                    instancesJson,
+                    new TypeReference<List<InstanceConfig>>() {}
+            );
+
+            // Validate each instance
+            for (InstanceConfig instance : instances) {
+                instance.validate();
+            }
+
+            return instances;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse instancesJson: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Check if JSON-based configuration is being used.
+     * @return true if instancesJson is provided and not empty
+     */
+    public boolean isUsingJsonConfig() {
+        return instancesJson != null && !instancesJson.trim().isEmpty();
+    }
+
+    /**
+     * Factory method to create configuration from JSON string.
+     * This is a convenience method for direct JSON configuration.
+     *
+     * @param instancesJson JSON string with instance configurations
+     * @return Builder pre-configured with JSON
+     */
+    public static AgentServiceConfigBuilder fromJson(String instancesJson) {
+        return AgentServiceConfig.builder()
+                .instancesJson(instancesJson);
     }
 
 }

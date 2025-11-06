@@ -36,7 +36,13 @@
       "Bash(\"src/main/java/DetectiveGame/detective/services/InvestigationGenerationService.java\" )",
       "Bash(\"src/main/java/DetectiveGame/detective/services/AgentOrchestrationService.java\")",
       "Bash(find:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" test-compile -DskipTests)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" install -DskipTests)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" clean install -DskipTests)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" test -Dtest=DetectiveGameTestControllerTest)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.2/plugins/maven/lib/maven3/bin/mvn.cmd\" spring-boot:run)",
+      "Bash(tee:*)"
     ],
     "deny": [],
     "ask": []
