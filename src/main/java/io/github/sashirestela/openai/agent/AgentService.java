@@ -78,6 +78,73 @@ public class AgentService {
         this.modelIndexes = new ConcurrentHashMap<>();  // One atomic counter per model
         this.globalInstanceIndex = new AtomicInteger(0);  // For model-agnostic operations
 
+        // === NEW: JSON-based configuration (takes precedence) ===
+        if (config.isUsingJsonConfig()) {
+            logger.info("Using JSON-based instance configuration");
+            List<InstanceConfig> instanceConfigs = config.parseInstances();
+
+            // Filter to only enabled instances
+            List<InstanceConfig> enabledInstances = instanceConfigs.stream()
+                    .filter(InstanceConfig::isEnabled)
+                    .collect(java.util.stream.Collectors.toList());
+
+            logger.info("Loaded {} instance(s) from JSON configuration ({} total, {} enabled)",
+                    enabledInstances.size(), instanceConfigs.size(), enabledInstances.size());
+
+            for (InstanceConfig instanceConfig : enabledInstances) {
+                // Normalize URL (add /openai if Azure and missing)
+                String baseUrl = instanceConfig.isAzure()
+                        ? normalizeAzureBaseUrl(instanceConfig.getUrl())
+                        : instanceConfig.getUrl();
+
+                // Create SimpleOpenAI client
+                SimpleOpenAI client = SimpleOpenAI.builder()
+                        .apiKey(instanceConfig.getKey())
+                        .baseUrl(baseUrl)
+                        .isAzure(instanceConfig.isAzure())
+                        .azureApiVersion(instanceConfig.getApiVersion())
+                        .build();
+
+                // Create Instance object
+                Instance instance = Instance.builder()
+                        .id(instanceConfig.getId())
+                        .baseUrl(baseUrl)
+                        .apiKey(instanceConfig.getKey())
+                        .provider(instanceConfig.isAzure() ? Provider.AZURE : Provider.OPENAI)
+                        .azureApiVersion(instanceConfig.getApiVersion())
+                        .deployedModels(instanceConfig.getModelsList())
+                        .client(client)
+                        .build();
+
+                this.instances.add(instance);
+                logger.info("Initialized instance: {} ({}) with models: {}",
+                        instanceConfig.getId(),
+                        instanceConfig.getProvider(),
+                        instanceConfig.getModels());
+            }
+
+            logger.info("Initialized {} instance(s) from JSON configuration", this.instances.size());
+
+            // Skip legacy configuration if JSON is provided
+            if (!this.instances.isEmpty()) {
+                // Initialize rate limiter (must be done before agent loading)
+                // (Cannot be in helper method because rateLimiter is final)
+                // This is duplicated code from the end of the constructor
+                // Initialize rate limiter
+                this.rateLimiter = new RateLimiter(config.getRequestsPerSecond());
+                logger.info("Initialized rate limiter: {} requests/second", config.getRequestsPerSecond());
+
+                // Load agent definitions if folder path is provided
+                if (config.getAgentJsonFolderPath() != null && !config.getAgentJsonFolderPath().isEmpty()) {
+                    loadAgentDefinitions();
+                }
+                return;
+            }
+        }
+
+        // === LEGACY: Initialize from separate configuration fields ===
+        logger.info("Using legacy configuration format");
+
         // Initialize OpenAI instances (if configured)
         if (config.getOpenAiApiKeys() != null && !config.getOpenAiApiKeys().isEmpty()) {
             // Parse deployed models from config (default to common models if not specified)
@@ -566,6 +633,116 @@ public class AgentService {
 
             logger.info("✅ Successfully created/updated all {} agents on all {} instance(s)", agents.size(), instances.size());
             return null;
+        });
+    }
+
+    /**
+     * Reload agent definitions from JSON files.
+     * This is useful when agent JSON files are modified while the application is running.
+     *
+     * <p><strong>Use case:</strong> Update agent instructions/configuration without restarting the app:</p>
+     * <pre>{@code
+     * 1. Modify agent JSON file (e.g., agent_500_entity_parser.json)
+     * 2. Call agentService.reloadAgents().join()
+     * 3. Optionally call agentService.createAllAgents().join() to update on OpenAI/Azure
+     * }</pre>
+     *
+     * @return CompletableFuture that completes when agents are reloaded
+     * @throws IllegalStateException if agentJsonFolderPath is not configured
+     */
+    public CompletableFuture<Void> reloadAgents() {
+        if (config.getAgentJsonFolderPath() == null || config.getAgentJsonFolderPath().isEmpty()) {
+            throw new IllegalStateException("Cannot reload agents: agentJsonFolderPath is not configured");
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                logger.info("🔄 Reloading agent definitions from: {}", config.getAgentJsonFolderPath());
+
+                // Clear current agents
+                int previousCount = agents.size();
+                agents.clear();
+
+                // Reload from JSON files
+                loadAgentDefinitions();
+
+                logger.info("✅ Reloaded {} agent definitions (previously: {})", agents.size(), previousCount);
+                return null;
+            } catch (IOException e) {
+                logger.error("❌ Failed to reload agents: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to reload agent definitions", e);
+            }
+        });
+    }
+
+    /**
+     * Reload a specific agent definition from its JSON file.
+     * This is useful when you modify a single agent file and want to reload only that one.
+     *
+     * <p><strong>Use case:</strong> Update a single agent without reloading all:</p>
+     * <pre>{@code
+     * 1. Modify agent_500_entity_parser.json
+     * 2. Call agentService.reloadAgent("500").join()
+     * 3. Optionally call agentService.createAgent("500").join() to update on OpenAI/Azure
+     * }</pre>
+     *
+     * @param agentId ID of the agent to reload (e.g., "500")
+     * @return CompletableFuture that completes when agent is reloaded
+     * @throws IllegalArgumentException if agent file not found
+     * @throws IllegalStateException if agentJsonFolderPath is not configured
+     */
+    public CompletableFuture<Void> reloadAgent(String agentId) {
+        if (config.getAgentJsonFolderPath() == null || config.getAgentJsonFolderPath().isEmpty()) {
+            throw new IllegalStateException("Cannot reload agent: agentJsonFolderPath is not configured");
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                logger.info("🔄 Reloading agent {} from JSON file", agentId);
+
+                Path agentFolder = Paths.get(config.getAgentJsonFolderPath());
+
+                // Find agent JSON file (try common patterns)
+                String[] possibleFilenames = {
+                    "agent_" + agentId + ".json",
+                    agentId + ".json",
+                    "agent_" + agentId + "_*.json"  // For files like agent_500_entity_parser.json
+                };
+
+                Path agentFile = null;
+                for (String pattern : possibleFilenames) {
+                    try (Stream<Path> paths = Files.walk(agentFolder, 1)) {
+                        List<Path> matches = paths
+                            .filter(Files::isRegularFile)
+                            .filter(p -> p.getFileName().toString().matches(pattern.replace("*", ".*")))
+                            .collect(java.util.stream.Collectors.toList());
+
+                        if (!matches.isEmpty()) {
+                            agentFile = matches.get(0);
+                            break;
+                        }
+                    }
+                }
+
+                if (agentFile == null) {
+                    throw new IllegalArgumentException("Agent file not found for ID: " + agentId +
+                        ". Tried patterns: " + String.join(", ", possibleFilenames));
+                }
+
+                // Read and parse JSON
+                String jsonContent = Files.readString(agentFile);
+                Agent agent = objectMapper.readValue(jsonContent, Agent.class);
+
+                // Update agents map
+                agents.put(agentId, agent);
+
+                logger.info("✅ Reloaded agent {} from: {}", agentId, agentFile.getFileName());
+                return null;
+
+            } catch (IOException e) {
+                logger.error("❌ Failed to reload agent {}: {}", agentId, e.getMessage(), e);
+                throw new RuntimeException("Failed to reload agent: " + agentId, e);
+            }
         });
     }
 
@@ -2011,6 +2188,136 @@ public class AgentService {
             }
         });
     }
+
+    // ==================== EMBEDDING GENERATION ====================
+
+    /**
+     * Generate embeddings for a given text using the specified model.
+     * Supports both OpenAI and Azure OpenAI with automatic load balancing across instances.
+     *
+     * @param text Text to generate embeddings for
+     * @param model Embedding model (e.g., "text-embedding-3-small", "text-embedding-3-large")
+     * @return CompletableFuture containing float array of embeddings (e.g., 1536 dimensions)
+     */
+    public CompletableFuture<float[]> generateEmbedding(String text, String model) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                logger.debug("Generating embedding for text (length: {}) with model: {}", text.length(), model);
+
+                // Find instances that support this model
+                List<Instance> compatibleInstances = instances.stream()
+                        .filter(i -> i.getDeployedModels().contains(model))
+                        .collect(java.util.stream.Collectors.toList());
+
+                if (compatibleInstances.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "No instance found with model: " + model + ". Available models: " +
+                                    instances.stream()
+                                            .flatMap(i -> i.getDeployedModels().stream())
+                                            .distinct()
+                                            .collect(java.util.stream.Collectors.joining(", ")));
+                }
+
+                // Round-robin selection for this model
+                AtomicInteger counter = modelIndexes.computeIfAbsent(model, k -> new AtomicInteger(0));
+                int index = counter.getAndIncrement() % compatibleInstances.size();
+                Instance selectedInstance = compatibleInstances.get(index);
+
+                logger.debug("Selected instance {} for embedding generation (model: {})",
+                        selectedInstance.getId(), model);
+
+                // Wait for rate limit (simple spin-wait implementation)
+                while (!rateLimiter.tryConsume()) {
+                    try {
+                        Thread.sleep(10);  // Wait 10ms before retrying
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Rate limiter interrupted", e);
+                    }
+                }
+
+                // Create embedding request
+                io.github.sashirestela.openai.domain.embedding.EmbeddingRequest request =
+                        io.github.sashirestela.openai.domain.embedding.EmbeddingRequest.builder()
+                                .model(model)
+                                .input(text)
+                                .build();
+
+                // Call embeddings API
+                var response = selectedInstance.getClient().embeddings().create(request).join();
+
+                if (response != null && response.getData() != null && !response.getData().isEmpty()) {
+                    // Extract embedding vector
+                    List<Double> embedding = response.getData().get(0).getEmbedding();
+
+                    // Convert to float array
+                    float[] result = new float[embedding.size()];
+                    for (int i = 0; i < embedding.size(); i++) {
+                        result[i] = embedding.get(i).floatValue();
+                    }
+
+                    logger.debug("Embedding generated successfully ({} dimensions) using instance {}",
+                            result.length, selectedInstance.getId());
+                    return result;
+                } else {
+                    throw new RuntimeException("Empty response from embeddings API");
+                }
+
+            } catch (Exception e) {
+                logger.error("Failed to generate embedding: {}", e.getMessage());
+                throw new RuntimeException("Embedding generation failed", e);
+            }
+        });
+    }
+
+    /**
+     * Generate embeddings using default model (text-embedding-3-small).
+     * Convenience method for common use case.
+     *
+     * @param text Text to generate embeddings for
+     * @return CompletableFuture containing float array of embeddings (1536 dimensions)
+     */
+    public CompletableFuture<float[]> generateEmbedding(String text) {
+        return generateEmbedding(text, "text-embedding-3-small");
+    }
+
+    // ==================== CLIENT ACCESS ====================
+
+    /**
+     * Get a SimpleOpenAI client from the first available instance.
+     * This is useful for direct API access (e.g., for custom operations not covered by AgentService).
+     *
+     * <p><strong>Note:</strong> When using this client directly, you bypass AgentService's
+     * rate limiting and load balancing. Use with caution.</p>
+     *
+     * @return SimpleOpenAI client
+     * @throws IllegalStateException if no instances are configured
+     */
+    public SimpleOpenAI getSimpleOpenAI() {
+        if (instances.isEmpty()) {
+            throw new IllegalStateException("No OpenAI instances configured. Cannot provide client.");
+        }
+        return instances.get(0).getClient();
+    }
+
+    /**
+     * Get a SimpleOpenAI client from a specific instance by ID.
+     *
+     * @param instanceId Instance ID (e.g., "openai-main", "azure-eastus")
+     * @return SimpleOpenAI client for the specified instance
+     * @throws IllegalArgumentException if instance ID not found
+     */
+    public SimpleOpenAI getSimpleOpenAI(String instanceId) {
+        return instances.stream()
+                .filter(i -> i.getId().equals(instanceId))
+                .findFirst()
+                .map(Instance::getClient)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Instance not found: " + instanceId + ". Available: " +
+                                instances.stream().map(Instance::getId).collect(java.util.stream.Collectors.joining(", "))));
+    }
+
+    // ==================== SHUTDOWN ====================
 
     /**
      * Shuts down the service and releases resources.
