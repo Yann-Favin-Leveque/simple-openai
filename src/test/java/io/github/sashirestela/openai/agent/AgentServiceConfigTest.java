@@ -156,8 +156,6 @@ class AgentServiceConfigTest {
         assertEquals(10000L, config.getRetryBaseDelayMs());
         assertEquals(60000L, config.getRateLimitDelayMs());
         assertEquals(300000L, config.getError502DelayMs());
-        assertFalse(config.isEnableImagePromptSanitization());
-        assertEquals("298", config.getImageSanitizerAgentId());
         assertEquals("2024-02-01", config.getAzureDalleApiVersion());
     }
 
@@ -170,8 +168,6 @@ class AgentServiceConfigTest {
                 .retryBaseDelayMs(5000L)
                 .rateLimitDelayMs(30000L)
                 .error502DelayMs(120000L)
-                .enableImagePromptSanitization(true)
-                .imageSanitizerAgentId("custom-agent-id")
                 .agentResultClassPackage("com.example.results")
                 .agentJsonFolderPath("/config/agents")
                 .build();
