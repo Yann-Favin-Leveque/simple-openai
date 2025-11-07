@@ -198,21 +198,6 @@ public class AgentServiceConfig {
     @Builder.Default
     private final long error502DelayMs = 300000L;
 
-    // === Image Generation Configuration ===
-
-    /**
-     * Enable automatic prompt sanitization when content policy violations occur.
-     * Default: false
-     */
-    @Builder.Default
-    private final boolean enableImagePromptSanitization = false;
-
-    /**
-     * Agent ID to use for image prompt sanitization.
-     * Default: "298"
-     */
-    @Builder.Default
-    private final String imageSanitizerAgentId = "298";
 
     // === Executor Configuration ===
 
