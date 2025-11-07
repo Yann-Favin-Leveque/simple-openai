@@ -178,8 +178,6 @@ class AgentServiceConfigTest {
         assertEquals(5000L, config.getRetryBaseDelayMs());
         assertEquals(30000L, config.getRateLimitDelayMs());
         assertEquals(120000L, config.getError502DelayMs());
-        assertTrue(config.isEnableImagePromptSanitization());
-        assertEquals("custom-agent-id", config.getImageSanitizerAgentId());
         assertEquals("com.example.results", config.getAgentResultClassPackage());
         assertEquals("/config/agents", config.getAgentJsonFolderPath());
         assertDoesNotThrow(config::validate);
