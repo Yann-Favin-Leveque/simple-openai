@@ -145,6 +145,14 @@ public class JsonSchemaGenerator {
                     Class<?> itemType = (Class<?>) actualTypes[0];
                     if (itemType == String.class) {
                         items.put("type", "string");
+                    } else if (itemType == Integer.class || itemType == int.class ||
+                               itemType == Long.class || itemType == long.class) {
+                        items.put("type", "integer");
+                    } else if (itemType == Double.class || itemType == double.class ||
+                               itemType == Float.class || itemType == float.class) {
+                        items.put("type", "number");
+                    } else if (itemType == Boolean.class || itemType == boolean.class) {
+                        items.put("type", "boolean");
                     } else if (itemType.getDeclaringClass() != null || isCustomClass(itemType)) {
                         items = buildSchemaForClass(itemType, new HashSet<>(visitedClasses));
                     } else {
